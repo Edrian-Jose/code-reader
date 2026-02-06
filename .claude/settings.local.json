@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(powershell:*)",
+      "Bash(if not exist \"c:\\\\Users\\\\admin\\\\Repositories\\\\code-reader\\\\specs\\\\001-mcp-code-reader\\\\checklists\" mkdir \"c:\\\\Users\\\\admin\\\\Repositories\\\\code-reader\\\\specs\\\\001-mcp-code-reader\\\\checklists\")",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run test:unit:*)"
+    ]
+  }
+}
