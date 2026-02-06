@@ -10,6 +10,7 @@ export async function createIndexes(): Promise<void> {
   // Tasks collection indexes
   const tasks = db.collection(COLLECTION_NAMES.TASKS);
   await tasks.createIndex({ taskId: 1 }, { unique: true });
+  await tasks.createIndex({ identifier: 1, version: -1 });
   await tasks.createIndex({ repositoryPath: 1, version: -1 });
   await tasks.createIndex({ status: 1 });
 

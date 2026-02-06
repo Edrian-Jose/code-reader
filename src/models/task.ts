@@ -22,11 +22,13 @@ export interface TaskProgress {
 export interface Task {
   _id?: ObjectId;
   taskId: string;
+  identifier: string; // User-friendly identifier (e.g., "my-app", "auth-service")
   version: number;
   repositoryPath: string;
   status: TaskStatus;
   progress: TaskProgress;
   config: TaskConfig;
+  recommendedFileLimit?: number; // Recommended files per process based on ~200k tokens
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;
@@ -35,6 +37,7 @@ export interface Task {
 
 export interface CreateTaskInput {
   repositoryPath: string;
+  identifier: string; // User-friendly identifier for this task
   config?: Partial<TaskConfig>;
 }
 
@@ -44,11 +47,13 @@ export interface TaskResponse {
     id: string;
     attributes: {
       taskId: string;
+      identifier: string;
       version: number;
       status: TaskStatus;
       repositoryPath?: string;
       progress?: TaskProgress;
       config?: TaskConfig;
+      recommendedFileLimit?: number;
       createdAt?: string;
       updatedAt?: string;
       completedAt?: string | null;
@@ -74,6 +79,7 @@ export function createTaskResponse(task: Task, detailed = false): TaskResponse {
       id: task.taskId,
       attributes: {
         taskId: task.taskId,
+        identifier: task.identifier,
         version: task.version,
         status: task.status,
       },
@@ -86,6 +92,7 @@ export function createTaskResponse(task: Task, detailed = false): TaskResponse {
       repositoryPath: task.repositoryPath,
       progress: task.progress,
       config: task.config,
+      recommendedFileLimit: task.recommendedFileLimit,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
       completedAt: task.completedAt?.toISOString() || null,

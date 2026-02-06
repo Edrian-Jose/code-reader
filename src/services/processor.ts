@@ -14,14 +14,29 @@ import type { Chunk } from '../models/chunk.js';
 import type { Embedding } from '../models/embedding.js';
 
 export class BatchProcessor {
-  async startProcessing(taskId: string): Promise<void> {
+  private stopRequests: Set<string> = new Set();
+
+  async startProcessing(taskId: string, fileLimit?: number): Promise<void> {
+    // Clear any previous stop request
+    this.stopRequests.delete(taskId);
+
     // Queue the task for processing
     taskQueue.enqueue(taskId, async () => {
-      await this.processTask(taskId);
+      await this.processTask(taskId, fileLimit);
     });
   }
 
-  private async processTask(taskId: string): Promise<void> {
+  async stopProcessing(taskId: string): Promise<boolean> {
+    if (!taskQueue.isTaskQueued(taskId)) {
+      return false;
+    }
+
+    this.stopRequests.add(taskId);
+    logger.info(`Stop requested for task ${taskId} - will stop after current batch`);
+    return true;
+  }
+
+  private async processTask(taskId: string, fileLimit?: number): Promise<void> {
     let task: Task;
 
     try {
@@ -39,36 +54,55 @@ export class BatchProcessor {
         return;
       }
 
+      // Apply file limit if specified
+      let filesToProcess = scanResult.files;
+      if (fileLimit) {
+        const startFile = task.progress.processedFiles || 0;
+        const endFile = startFile + fileLimit;
+        filesToProcess = scanResult.files.slice(startFile, endFile);
+        logger.info(`File limit active: processing files ${startFile}-${endFile} of ${scanResult.files.length}`);
+      }
+
       // Divide into batches
-      const batches = fileScanner.divideBatches(scanResult.files, task.config.batchSize);
+      const batches = fileScanner.divideBatches(filesToProcess, task.config.batchSize);
 
       // Update progress with total info
       await taskService.updateProgress(taskId, {
         totalFiles: scanResult.files.length,
-        totalBatches: batches.length,
+        totalBatches: fileLimit ? task.progress.currentBatch + batches.length : Math.ceil(scanResult.files.length / task.config.batchSize),
         currentBatch: task.progress.currentBatch, // Resume from where we left off
       });
 
       // Process batches starting from the last completed one
-      const startBatch = task.progress.currentBatch;
+      const startBatch = 0; // Start from beginning of the limited set
 
       for (let i = startBatch; i < batches.length; i++) {
-        logger.info(`Processing batch ${i + 1}/${batches.length} for task ${taskId}`);
+        // Check for stop request
+        if (this.stopRequests.has(taskId)) {
+          logger.info(`Stop request detected for task ${taskId} - stopping after batch ${i + 1}`);
+          this.stopRequests.delete(taskId);
+          await taskService.updateStatus(taskId, 'pending'); // Set back to pending for resume
+          return;
+        }
+
+        const actualBatchNumber = task.progress.currentBatch + i + 1;
+        logger.info(`Processing batch ${actualBatchNumber} for task ${taskId}`);
 
         try {
-          await this.processBatch(taskId, batches[i], i + 1, task.config);
+          await this.processBatch(taskId, batches[i], actualBatchNumber, task.config);
 
           // Update progress after successful batch
+          const filesProcessedInSession = (i + 1) * task.config.batchSize;
           await taskService.updateProgress(taskId, {
-            currentBatch: i + 1,
-            processedFiles: (i + 1) * task.config.batchSize,
+            currentBatch: actualBatchNumber,
+            processedFiles: task.progress.processedFiles + filesProcessedInSession,
           });
 
           // Yield to event loop between batches
           await this.yield();
         } catch (error) {
           // Rollback partial batch data
-          await this.rollbackBatch(taskId, i + 1);
+          await this.rollbackBatch(taskId, actualBatchNumber);
 
           // Update task as failed
           await taskService.updateStatus(taskId, 'failed', (error as Error).message);

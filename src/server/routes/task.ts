@@ -11,6 +11,11 @@ const router = Router();
 // Request validation schemas
 const CreateTaskSchema = z.object({
   repositoryPath: z.string().min(1, 'Repository path is required'),
+  identifier: z
+    .string()
+    .min(2, 'Identifier must be at least 2 characters')
+    .max(100, 'Identifier must be at most 100 characters')
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Identifier must contain only alphanumeric characters, hyphens, and underscores'),
   config: z
     .object({
       batchSize: z.number().min(1).max(500).optional(),
@@ -29,6 +34,14 @@ const TaskIdParamSchema = z.object({
   }),
 });
 
+const IdentifierParamSchema = z.object({
+  identifier: z
+    .string()
+    .min(2)
+    .max(100)
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Invalid identifier format'),
+});
+
 // POST /task - Create extraction task
 router.post(
   '/task',
@@ -36,7 +49,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const task = await taskService.create(req.body);
-      const response = createTaskResponse(task);
+      const response = createTaskResponse(task, true); // Return detailed info including totalFiles
       res.status(201).json(response);
     } catch (error) {
       next(error);
@@ -44,7 +57,7 @@ router.post(
   }
 );
 
-// GET /task/:taskId - Get task status
+// GET /task/:taskId - Get task status (backward compatibility)
 router.get(
   '/task/:taskId',
   validate({ params: TaskIdParamSchema }),
@@ -52,6 +65,33 @@ router.get(
     try {
       const taskId = req.params.taskId as string;
       const task = await taskService.getById(taskId);
+      const response = createTaskResponse(task, true);
+
+      // Add percentage complete to progress
+      if (response.data.attributes.progress) {
+        const { currentBatch, totalBatches } = response.data.attributes.progress;
+        const progressWithPercent = {
+          ...response.data.attributes.progress,
+          percentComplete: totalBatches > 0 ? Math.round((currentBatch / totalBatches) * 100) : 0,
+        };
+        response.data.attributes.progress = progressWithPercent;
+      }
+
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /task/by-identifier/:identifier - Get task by user-friendly identifier
+router.get(
+  '/task/by-identifier/:identifier',
+  validate({ params: IdentifierParamSchema }),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const identifier = req.params.identifier as string;
+      const task = await taskService.getByIdentifier(identifier);
       const response = createTaskResponse(task, true);
 
       // Add percentage complete to progress

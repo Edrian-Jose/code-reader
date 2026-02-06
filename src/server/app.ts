@@ -2,6 +2,8 @@ import express, { type Express } from 'express';
 import healthRoutes from './routes/health.js';
 import taskRoutes from './routes/task.js';
 import processRoutes from './routes/process.js';
+import searchRoutes from './routes/search.js';
+import docsRoutes from './routes/docs.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { logger } from '../utils/logger.js';
 
@@ -24,6 +26,8 @@ export function createApp(): Express {
   app.use(healthRoutes);
   app.use(taskRoutes);
   app.use(processRoutes);
+  app.use(searchRoutes);
+  app.use(docsRoutes);
 
   // 404 handler
   app.use(notFoundHandler);

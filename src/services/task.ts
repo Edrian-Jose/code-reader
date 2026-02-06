@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'fs';
 import { getTasksCollection, getFilesCollection, getChunksCollection, getEmbeddingsCollection } from '../db/collections.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
-import { NotFoundError, InvalidPathError, ValidationError } from '../utils/errors.js';
+import { NotFoundError, InvalidPathError, ValidationError, ConflictError } from '../utils/errors.js';
 import {
   type Task,
   type TaskStatus,
@@ -12,6 +12,7 @@ import {
   DEFAULT_TASK_CONFIG,
 } from '../models/task.js';
 import { getConfig } from '../config/index.js';
+import { FileScanner } from './scanner.js';
 
 const MAX_VERSIONS_TO_KEEP = 3;
 
@@ -20,8 +21,11 @@ export class TaskService {
     // Validate repository path
     await this.validatePath(input.repositoryPath);
 
-    // Get next version number for this repository
-    const version = await this.getNextVersion(input.repositoryPath);
+    // Validate identifier is unique
+    await this.validateIdentifier(input.identifier);
+
+    // Get next version number for this identifier
+    const version = await this.getNextVersion(input.identifier);
 
     // Merge config with defaults
     const config = getConfig();
@@ -37,19 +41,32 @@ export class TaskService {
       ...input.config,
     };
 
+    // Scan repository to get file count
+    const scanner = new FileScanner();
+    const scanResult = await scanner.scan(input.repositoryPath, taskConfig);
+    const totalFiles = scanResult.files.length;
+
+    // Calculate recommended file limit based on ~200k token target
+    // Assume average file has ~500 tokens/chunk, chunk size is configured
+    const avgTokensPerFile = taskConfig.chunkSize * 1.5; // 1.5 chunks per file average
+    const targetTokens = 200000;
+    const recommendedFileLimit = Math.max(10, Math.floor(targetTokens / avgTokensPerFile));
+
     const now = new Date();
     const task: Task = {
       taskId: generateUUID(),
+      identifier: input.identifier,
       version,
       repositoryPath: input.repositoryPath,
       status: 'pending',
       progress: {
-        totalFiles: 0,
+        totalFiles,
         processedFiles: 0,
         currentBatch: 0,
         totalBatches: 0,
       },
       config: taskConfig,
+      recommendedFileLimit,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -59,10 +76,12 @@ export class TaskService {
     const collection = getTasksCollection();
     await collection.insertOne(task);
 
-    logger.info(`Task created: ${task.taskId} (v${version}) for ${input.repositoryPath}`);
+    logger.info(
+      `Task created: ${task.identifier} (v${version}) - ${totalFiles} files, recommended limit: ${recommendedFileLimit}`
+    );
 
     // Clean up old versions
-    await this.cleanupOldVersions(input.repositoryPath);
+    await this.cleanupOldVersions(input.identifier);
 
     return task;
   }
@@ -141,6 +160,17 @@ export class TaskService {
     return result;
   }
 
+  async getByIdentifier(identifier: string): Promise<Task> {
+    const collection = getTasksCollection();
+    const task = await collection.findOne({ identifier }, { sort: { version: -1 } });
+
+    if (!task) {
+      throw new NotFoundError('Task', identifier);
+    }
+
+    return task;
+  }
+
   async validatePath(repositoryPath: string): Promise<void> {
     if (!repositoryPath || typeof repositoryPath !== 'string') {
       throw new ValidationError('Repository path is required');
@@ -156,10 +186,27 @@ export class TaskService {
     }
   }
 
-  async getNextVersion(repositoryPath: string): Promise<number> {
+  async validateIdentifier(identifier: string): Promise<void> {
+    if (!identifier || typeof identifier !== 'string') {
+      throw new ValidationError('Identifier is required');
+    }
+
+    // Validate identifier format (alphanumeric, hyphens, underscores only)
+    if (!/^[a-zA-Z0-9_-]+$/.test(identifier)) {
+      throw new ValidationError(
+        'Identifier must contain only alphanumeric characters, hyphens, and underscores'
+      );
+    }
+
+    if (identifier.length < 2 || identifier.length > 100) {
+      throw new ValidationError('Identifier must be between 2 and 100 characters');
+    }
+  }
+
+  async getNextVersion(identifier: string): Promise<number> {
     const collection = getTasksCollection();
     const latestTask = await collection
-      .find({ repositoryPath })
+      .find({ identifier })
       .sort({ version: -1 })
       .limit(1)
       .toArray();
@@ -171,14 +218,11 @@ export class TaskService {
     return latestTask[0].version + 1;
   }
 
-  async cleanupOldVersions(repositoryPath: string): Promise<void> {
+  async cleanupOldVersions(identifier: string): Promise<void> {
     const collection = getTasksCollection();
 
-    // Get all versions for this repository, sorted by version descending
-    const tasks = await collection
-      .find({ repositoryPath })
-      .sort({ version: -1 })
-      .toArray();
+    // Get all versions for this identifier, sorted by version descending
+    const tasks = await collection.find({ identifier }).sort({ version: -1 }).toArray();
 
     // Keep only the last MAX_VERSIONS_TO_KEEP versions
     if (tasks.length <= MAX_VERSIONS_TO_KEEP) {
@@ -189,7 +233,7 @@ export class TaskService {
 
     for (const task of tasksToDelete) {
       await this.deleteTask(task.taskId);
-      logger.info(`Deleted old task version: ${task.taskId} (v${task.version}) for ${repositoryPath}`);
+      logger.info(`Deleted old task version: ${task.identifier} (v${task.version})`);
     }
   }
 
