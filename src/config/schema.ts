@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 export const MongoDbConfigSchema = z.object({
-  uri: z.string().default('mongodb://localhost:27017'),
+  uri: z.string().default('mongodb://localhost:27017'), // Legacy single URI
+  atlasUri: z.string().optional(), // Primary: Atlas Local (Docker)
+  localUri: z.string().optional(), // Fallback: Standard MongoDB
   database: z.string().default('code_reader'),
 });
 

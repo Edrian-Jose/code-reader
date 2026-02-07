@@ -158,6 +158,56 @@ curl -X POST http://localhost:3100/process \
 
 **See [USAGE-GUIDE.md](USAGE-GUIDE.md) for complete workflow examples and AI agent integration patterns.**
 
+---
+
+## 🤖 Claude Code Integration
+
+**Use this MCP server with Claude Code for AI-powered code search!**
+
+### Quick Setup for Claude Code
+
+1. **Build the server:**
+   ```bash
+   npm run build
+   npm run db:init
+   ```
+
+2. **Add to Claude Code MCP config:**
+
+   Edit `~/.config/claude-code/mcp_settings.json` (or `claude_desktop_config.json`):
+   ```json
+   {
+     "mcpServers": {
+       "code-reader": {
+         "command": "node",
+         "args": ["/absolute/path/to/code-reader/dist/index.js"],
+         "env": {
+           "OPENAI_API_KEY": "your-openai-api-key",
+           "MONGODB_URI": "mongodb://localhost:58746/?directConnection=true"
+         }
+       }
+     }
+   }
+   ```
+
+3. **Index your repositories:**
+   ```bash
+   curl -X POST http://localhost:3100/task \
+     -d '{"repositoryPath": "/path/to/your/project", "identifier": "my-project"}'
+
+   curl -X POST http://localhost:3100/process \
+     -d '{"identifier": "my-project", "fileLimit": 133}'
+   ```
+
+4. **Ask Claude to search your code:**
+   - "Search my-project for authentication logic"
+   - "Find error handling in my-project"
+   - "Look for database queries in my-project"
+
+**See [MCP-SETUP.md](MCP-SETUP.md) for complete Claude Code integration guide.**
+
+---
+
 ## API Documentation
 
 ### Complete API Reference
@@ -310,9 +360,23 @@ npm run lint
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | OpenAI API key (required) | - |
 | `OPENAI_BASE_URL` | Custom OpenAI endpoint (optional) | - |
-| `MONGODB_URI` | MongoDB connection URI | mongodb://localhost:27017 |
+| **`MONGODB_ATLAS_URI`** | **Primary MongoDB (Atlas Local - tried first)** | - |
+| **`MONGODB_LOCAL_URI`** | **Fallback MongoDB (standard - if Atlas fails)** | mongodb://localhost:27017 |
+| `MONGODB_URI` | Legacy single connection (overrides Atlas/Local) | - |
 | `CODE_READER_PORT` | Server port | 3100 |
 | `LOG_LEVEL` | Logging level | info |
+
+**MongoDB Dual Connection Strategy (Recommended):**
+```bash
+# .env file
+MONGODB_ATLAS_URI=mongodb://localhost:58746/?directConnection=true
+MONGODB_LOCAL_URI=mongodb://localhost:27017
+```
+
+**How it works:**
+1. Tries Atlas Local first (Docker, port 58746) - fast vector search
+2. Falls back to standard MongoDB (port 27017) if Atlas unavailable
+3. Automatic failover - no manual intervention needed
 
 **OPENAI_BASE_URL Examples:**
 - Azure OpenAI: `https://your-resource.openai.azure.com`
@@ -416,11 +480,35 @@ curl -X POST http://localhost:3100/process \
 
 MIT License - See LICENSE file for details
 
+## Documentation
+
+### Complete Guide Collection
+
+| Guide | Purpose | Audience |
+|-------|---------|----------|
+| [README.md](README.md) | Project overview & quick start | Everyone |
+| [MCP-SETUP.md](MCP-SETUP.md) | **Claude Code integration** | **Claude users** |
+| [USAGE-GUIDE.md](USAGE-GUIDE.md) | Workflows & AI agent patterns | Developers & AI agents |
+| [API.md](API.md) | Complete endpoint reference | API developers |
+| [API-CHANGELOG.md](API-CHANGELOG.md) | v1→v2 migration guide | Existing users |
+| [ATLAS-SETUP.md](ATLAS-SETUP.md) | Vector search performance | Performance tuning |
+| [openapi.yaml](openapi.yaml) | OpenAPI 3.0 specification | Tool integration |
+
+### Quick Links
+
+- **New to Code Reader?** Start with [README.md](README.md)
+- **Using with Claude Code?** See [MCP-SETUP.md](MCP-SETUP.md)
+- **Building AI agents?** Check [USAGE-GUIDE.md](USAGE-GUIDE.md)
+- **API reference?** See [API.md](API.md) or [openapi.yaml](openapi.yaml)
+- **Performance tuning?** Read [ATLAS-SETUP.md](ATLAS-SETUP.md)
+
+---
+
 ## Support
 
 For issues, questions, or contributions:
 - GitHub Issues: [Create an issue](../../issues)
-- Documentation: [API.md](API.md)
+- Documentation: See table above
 - OpenAPI Spec: [openapi.yaml](openapi.yaml)
 
 ---

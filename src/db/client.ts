@@ -18,49 +18,65 @@ export async function connectToDatabase(): Promise<Db> {
   }
 
   const config = getConfig();
-  let lastError: Error | null = null;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  // Determine connection strategy
+  const uris: Array<{ uri: string; label: string }> = [];
+
+  // Priority 1: Legacy single URI (if set, use it exclusively)
+  if (config.mongodb.uri && config.mongodb.uri !== 'mongodb://localhost:27017') {
+    uris.push({ uri: config.mongodb.uri, label: 'configured URI' });
+  }
+  // Priority 2: Atlas Local (primary) + Standard MongoDB (fallback)
+  else {
+    if (config.mongodb.atlasUri) {
+      uris.push({ uri: config.mongodb.atlasUri, label: 'Atlas Local (Docker)' });
+    }
+    if (config.mongodb.localUri) {
+      uris.push({ uri: config.mongodb.localUri, label: 'Local MongoDB' });
+    }
+    // Default if neither configured
+    if (uris.length === 0) {
+      uris.push({ uri: 'mongodb://localhost:27017', label: 'default local' });
+    }
+  }
+
+  // Try each URI in order
+  for (const { uri, label } of uris) {
+    logger.info(`Attempting connection to ${label}: ${uri}`);
+
     try {
-      logger.info(`Connecting to MongoDB (attempt ${attempt}/${MAX_RETRIES})...`);
-
-      client = new MongoClient(config.mongodb.uri, {
+      const testClient = new MongoClient(uri, {
         maxPoolSize: 10,
         minPoolSize: 2,
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
       });
 
-      await client.connect();
-      db = client.db(config.mongodb.database);
+      await testClient.connect();
+      const testDb = testClient.db(config.mongodb.database);
 
       // Verify connection
-      await db.command({ ping: 1 });
+      await testDb.command({ ping: 1 });
 
-      logger.info(`Connected to MongoDB at ${config.mongodb.uri}`);
+      // Success! Use this connection
+      client = testClient;
+      db = testDb;
+
+      logger.info(`✓ Connected to MongoDB (${label}): ${uri}`);
       return db;
     } catch (error) {
-      lastError = error as Error;
-      logger.warn(`MongoDB connection attempt ${attempt} failed: ${lastError.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.warn(`✗ Connection to ${label} failed: ${errorMessage}`);
 
-      if (client) {
-        try {
-          await client.close();
-        } catch {
-          // Ignore close errors
-        }
-        client = null;
-      }
-
-      if (attempt < MAX_RETRIES) {
-        const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-        logger.info(`Retrying in ${delay}ms...`);
-        await sleep(delay);
+      // Try next URI if available
+      if (uris.indexOf({ uri, label }) < uris.length - 1) {
+        logger.info(`Trying fallback connection...`);
       }
     }
   }
 
-  throw new Error(`Failed to connect to MongoDB after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+  // All connection attempts failed
+  throw new Error(`Failed to connect to MongoDB. Tried: ${uris.map((u) => u.label).join(', ')}`);
 }
 
 export function getDatabase(): Db {

@@ -30,11 +30,33 @@ export function loadConfig(configPath?: string): Config {
   // Apply environment variable overrides
   const envOverrides: Record<string, unknown> = {};
 
+  // MongoDB connection handling with fallback support
+  const mongoConfig = (fileConfig.mongodb as Record<string, unknown>) || {};
+
   if (process.env.MONGODB_URI) {
+    // Legacy: Single URI overrides everything
     envOverrides.mongodb = {
-      ...(fileConfig.mongodb as Record<string, unknown> || {}),
+      ...mongoConfig,
       uri: process.env.MONGODB_URI,
     };
+  } else {
+    // Dual connection: Atlas primary, Local fallback
+    const updates: Record<string, unknown> = {};
+
+    if (process.env.MONGODB_ATLAS_URI) {
+      updates.atlasUri = process.env.MONGODB_ATLAS_URI;
+    }
+
+    if (process.env.MONGODB_LOCAL_URI) {
+      updates.localUri = process.env.MONGODB_LOCAL_URI;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      envOverrides.mongodb = {
+        ...mongoConfig,
+        ...updates,
+      };
+    }
   }
 
   if (process.env.CODE_READER_PORT) {
