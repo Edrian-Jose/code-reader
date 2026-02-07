@@ -1,0 +1,428 @@
+openapi: 3.0.3
+info:
+  title: Code Reader MCP API
+  description: |
+    Local MCP (Model Context Protocol) server for code extraction, embedding, and semantic search.
+
+    All endpoints are bound to localhost only. The API follows JSON:API format for responses.
+  version: 1.0.0
+  contact:
+    name: Code Reader
+
+servers:
+  - url: http://localhost:3100
+    description: Local development server
+
+tags:
+  - name: Tasks
+    description: Task creation and management
+  - name: Processing
+    description: Background processing operations
+  - name: Search
+    description: Semantic code search
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /task:
+    post:
+      summary: Create extraction task
+      description: |
+        Creates a new extraction task for a repository.
+        If the repository was previously processed, creates a new version.
+      operationId: createTask
+      tags:
+        - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /task/{taskId}:
+    get:
+      summary: Get task status
+      description: Returns the current status and progress of an extraction task
+      operationId: getTask
+      tags:
+        - Tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: UUID of the task
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /process:
+    post:
+      summary: Start or resume processing
+      description: |
+        Triggers background processing for a pending task.
+        Returns immediately; use GET /task/{id} to poll progress.
+      operationId: processTask
+      tags:
+        - Processing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessRequest'
+      responses:
+        '202':
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessResponse'
+        '400':
+          description: Invalid request or task not in pending state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /search_code:
+    post:
+      summary: Search embedded code
+      description: |
+        Performs semantic search over embedded code chunks.
+        Returns ranked results based on cosine similarity to the query.
+      operationId: searchCode
+      tags:
+        - Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateTaskRequest:
+      type: object
+      required:
+        - repositoryPath
+      properties:
+        repositoryPath:
+          type: string
+          description: Absolute path to the repository
+          example: /home/user/projects/my-app
+        config:
+          $ref: '#/components/schemas/TaskConfig'
+
+    TaskConfig:
+      type: object
+      properties:
+        batchSize:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
+          description: Number of files per batch
+        chunkSize:
+          type: integer
+          minimum: 500
+          maximum: 1500
+          default: 1000
+          description: Target tokens per chunk
+        chunkOverlap:
+          type: integer
+          minimum: 0
+          maximum: 500
+          default: 100
+          description: Token overlap between chunks
+        embeddingModel:
+          type: string
+          default: text-embedding-3-small
+          description: OpenAI embedding model to use
+        extensions:
+          type: array
+          items:
+            type: string
+          default: [".js", ".ts", ".py", ".go", ".rs", ".java", ".cpp", ".c", ".h", ".md"]
+          description: File extensions to process
+
+    TaskResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: task
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                version:
+                  type: integer
+                status:
+                  $ref: '#/components/schemas/TaskStatus'
+
+    TaskDetailResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: task
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                version:
+                  type: integer
+                repositoryPath:
+                  type: string
+                status:
+                  $ref: '#/components/schemas/TaskStatus'
+                progress:
+                  $ref: '#/components/schemas/TaskProgress'
+                config:
+                  $ref: '#/components/schemas/TaskConfig'
+                createdAt:
+                  type: string
+                  format: date-time
+                updatedAt:
+                  type: string
+                  format: date-time
+                completedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                error:
+                  type: string
+                  nullable: true
+
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - completed
+        - failed
+
+    TaskProgress:
+      type: object
+      properties:
+        totalFiles:
+          type: integer
+        processedFiles:
+          type: integer
+        currentBatch:
+          type: integer
+        totalBatches:
+          type: integer
+        percentComplete:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+
+    ProcessRequest:
+      type: object
+      required:
+        - taskId
+      properties:
+        taskId:
+          type: string
+          format: uuid
+          description: UUID of the task to process
+
+    ProcessResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: process
+            attributes:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: processing
+                message:
+                  type: string
+                  example: Processing started
+
+    SearchRequest:
+      type: object
+      required:
+        - query
+        - taskId
+      properties:
+        query:
+          type: string
+          description: Natural language search query
+          example: function that handles authentication
+        taskId:
+          type: string
+          format: uuid
+          description: UUID of the task to search within
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+          description: Maximum number of results to return
+
+    SearchResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: search_results
+            attributes:
+              type: object
+              properties:
+                query:
+                  type: string
+                taskId:
+                  type: string
+                  format: uuid
+                resultCount:
+                  type: integer
+                results:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchResult'
+
+    SearchResult:
+      type: object
+      properties:
+        filePath:
+          type: string
+          description: Relative path to the file
+          example: src/auth/handler.ts
+        content:
+          type: string
+          description: Code content of the chunk
+        startLine:
+          type: integer
+          description: First line number (1-indexed)
+        endLine:
+          type: integer
+          description: Last line number (inclusive)
+        score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Cosine similarity score
+
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+                example: "404"
+              code:
+                type: string
+                example: TASK_NOT_FOUND
+              title:
+                type: string
+                example: Task Not Found
+              detail:
+                type: string
+                example: No task exists with ID abc-123
+              meta:
+                type: object
+                additionalProperties: true

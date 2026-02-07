@@ -1,0 +1,53 @@
+{
+  "name": "code-reader",
+  "version": "1.0.0",
+  "description": "Local MCP server for code extraction, embedding, and semantic search",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:e2e": "jest tests/e2e",
+    "db:init": "tsx scripts/db-init.ts",
+    "prereqs": "tsx scripts/check-prereqs.ts",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "mcp",
+    "code-reader",
+    "embeddings",
+    "semantic-search"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4",
+    "express": "^5.2.1",
+    "glob": "^13.0.1",
+    "mongodb": "^7.1.0",
+    "openai": "^6.18.0",
+    "tiktoken": "^1.0.22",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.2.1",
+    "@types/supertest": "^6.0.3",
+    "@types/uuid": "^10.0.0",
+    "jest": "^30.2.0",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.6",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

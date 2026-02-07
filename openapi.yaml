@@ -1,0 +1,690 @@
+openapi: 3.0.3
+info:
+  title: Code Reader MCP API
+  description: |
+    Local MCP (Model Context Protocol) server for code extraction, embedding, and semantic search.
+
+    **NEW FEATURES:**
+    - AI-friendly identifiers (use "my-app" instead of UUIDs)
+    - Token budget control with fileLimit parameter
+    - Graceful stop processing endpoint
+    - Smart file recommendations (~200k tokens per session)
+    - Search result filtering with minScore threshold (default 0.7)
+
+    All endpoints are bound to localhost only. The API follows JSON:API format for responses.
+  version: 2.0.0
+  contact:
+    name: Code Reader
+
+servers:
+  - url: http://localhost:3100
+    description: Local development server
+
+tags:
+  - name: Tasks
+    description: Task creation and management
+  - name: Processing
+    description: Background processing operations
+  - name: Search
+    description: Semantic code search
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /task:
+    post:
+      summary: Create extraction task
+      description: |
+        Creates a new extraction task with a user-friendly identifier.
+        Scans repository immediately and returns total file count and recommended file limit.
+        If the same identifier was used before, creates a new version.
+      operationId: createTask
+      tags:
+        - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+            examples:
+              basic:
+                summary: Basic task creation
+                value:
+                  repositoryPath: /home/user/projects/my-app
+                  identifier: my-app
+              withConfig:
+                summary: Task with custom configuration
+                value:
+                  repositoryPath: /home/user/projects/large-repo
+                  identifier: large-repo
+                  config:
+                    batchSize: 100
+                    chunkSize: 1200
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /task/{taskId}:
+    get:
+      summary: Get task by UUID
+      description: Returns task details by UUID (backward compatibility)
+      operationId: getTaskById
+      tags:
+        - Tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: UUID of the task
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /task/by-identifier/{identifier}:
+    get:
+      summary: Get task by identifier
+      description: |
+        Returns the latest version of a task by its user-friendly identifier.
+        Recommended for AI agents and human-friendly APIs.
+      operationId: getTaskByIdentifier
+      tags:
+        - Tasks
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          description: User-friendly identifier (e.g., "my-app", "auth-service")
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{2,100}$'
+            example: my-app
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /process:
+    post:
+      summary: Start or resume processing
+      description: |
+        Triggers background processing for a task.
+        Use fileLimit to control token budget (processes max N files before stopping).
+        Returns immediately; poll GET /task/{id} for progress.
+      operationId: processTask
+      tags:
+        - Processing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessRequest'
+            examples:
+              byIdentifier:
+                summary: Process by identifier with file limit
+                value:
+                  identifier: my-app
+                  fileLimit: 133
+              byTaskId:
+                summary: Process by UUID (backward compat)
+                value:
+                  taskId: 550e8400-e29b-41d4-a716-446655440000
+              unlimitedProcess:
+                summary: Process all files
+                value:
+                  identifier: small-repo
+      responses:
+        '202':
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessResponse'
+        '400':
+          description: Invalid request or task not in pending state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Task already being processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /process/stop:
+    post:
+      summary: Stop processing gracefully
+      description: |
+        Requests to stop ongoing processing after the current batch completes.
+        Task status returns to 'pending' for later resumption.
+        All progress is saved.
+      operationId: stopProcessing
+      tags:
+        - Processing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopProcessingRequest'
+            examples:
+              byIdentifier:
+                summary: Stop by identifier
+                value:
+                  identifier: my-app
+              byTaskId:
+                summary: Stop by UUID
+                value:
+                  taskId: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: Stop request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopProcessingResponse'
+        '400':
+          description: Task not currently processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /search_code:
+    post:
+      summary: Search embedded code
+      description: |
+        Performs semantic search over embedded code chunks.
+        Returns ranked results based on cosine similarity to the query.
+        Use minScore to filter irrelevant results (default: 0.7).
+      operationId: searchCode
+      tags:
+        - Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            examples:
+              byIdentifier:
+                summary: Search by identifier (recommended)
+                value:
+                  identifier: my-app
+                  query: authentication middleware
+                  limit: 5
+                  minScore: 0.7
+              preciseSearch:
+                summary: Precise search with high threshold
+                value:
+                  identifier: auth-service
+                  query: JWT token validation
+                  minScore: 0.85
+                  limit: 3
+              byTaskId:
+                summary: Search by UUID (backward compat)
+                value:
+                  taskId: 550e8400-e29b-41d4-a716-446655440000
+                  query: error handling
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateTaskRequest:
+      type: object
+      required:
+        - repositoryPath
+        - identifier
+      properties:
+        repositoryPath:
+          type: string
+          description: Absolute path to the repository
+          example: /home/user/projects/my-app
+        identifier:
+          type: string
+          description: User-friendly identifier (alphanumeric, hyphens, underscores)
+          pattern: '^[a-zA-Z0-9_-]{2,100}$'
+          minLength: 2
+          maxLength: 100
+          example: my-app
+        config:
+          $ref: '#/components/schemas/TaskConfig'
+
+    TaskConfig:
+      type: object
+      properties:
+        batchSize:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
+          description: Number of files per batch
+        chunkSize:
+          type: integer
+          minimum: 500
+          maximum: 1500
+          default: 1000
+          description: Target tokens per chunk
+        chunkOverlap:
+          type: integer
+          minimum: 0
+          maximum: 500
+          default: 100
+          description: Token overlap between chunks
+        embeddingModel:
+          type: string
+          default: text-embedding-3-small
+          description: OpenAI embedding model to use
+        extensions:
+          type: array
+          items:
+            type: string
+          default: [".js", ".ts", ".py", ".go", ".rs", ".java", ".cpp", ".c", ".h", ".md"]
+          description: File extensions to process
+        excludeDirs:
+          type: array
+          items:
+            type: string
+          default: ["node_modules", ".git", "dist", "build"]
+          description: Directories to exclude
+
+    TaskResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: task
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  example: my-app
+                version:
+                  type: integer
+                status:
+                  $ref: '#/components/schemas/TaskStatus'
+
+    TaskDetailResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: task
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  description: User-friendly identifier
+                  example: my-app
+                version:
+                  type: integer
+                repositoryPath:
+                  type: string
+                status:
+                  $ref: '#/components/schemas/TaskStatus'
+                progress:
+                  $ref: '#/components/schemas/TaskProgress'
+                config:
+                  $ref: '#/components/schemas/TaskConfig'
+                recommendedFileLimit:
+                  type: integer
+                  description: Recommended files per session for ~200k tokens
+                  example: 133
+                createdAt:
+                  type: string
+                  format: date-time
+                updatedAt:
+                  type: string
+                  format: date-time
+                completedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                error:
+                  type: string
+                  nullable: true
+
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - completed
+        - failed
+
+    TaskProgress:
+      type: object
+      properties:
+        totalFiles:
+          type: integer
+          description: Total files found in repository
+        processedFiles:
+          type: integer
+          description: Files processed so far
+        currentBatch:
+          type: integer
+          description: Current batch number
+        totalBatches:
+          type: integer
+          description: Total number of batches
+        percentComplete:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: Percentage complete (calculated field)
+
+    ProcessRequest:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+          description: UUID of the task to process (optional if identifier provided)
+        identifier:
+          type: string
+          pattern: '^[a-zA-Z0-9_-]{2,100}$'
+          description: Identifier of the task to process (optional if taskId provided)
+          example: my-app
+        fileLimit:
+          type: integer
+          minimum: 1
+          description: Maximum number of files to process before stopping (optional, for budget control)
+          example: 133
+      oneOf:
+        - required: [taskId]
+        - required: [identifier]
+
+    ProcessResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: process
+            attributes:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: processing
+                message:
+                  type: string
+                  example: Processing started (max 133 files)
+                taskId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  example: my-app
+                fileLimit:
+                  type: integer
+                  nullable: true
+                  example: 133
+                queuePosition:
+                  type: integer
+                  description: Position in processing queue
+
+    StopProcessingRequest:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+          description: UUID of the task to stop (optional if identifier provided)
+        identifier:
+          type: string
+          pattern: '^[a-zA-Z0-9_-]{2,100}$'
+          description: Identifier of the task to stop (optional if taskId provided)
+          example: my-app
+      oneOf:
+        - required: [taskId]
+        - required: [identifier]
+
+    StopProcessingResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: process
+            attributes:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: stopped
+                message:
+                  type: string
+                  example: Processing will stop after current batch completes
+                taskId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  example: my-app
+
+    SearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Natural language search query
+          example: function that handles authentication
+        taskId:
+          type: string
+          format: uuid
+          description: UUID of the task to search (optional if identifier provided)
+        identifier:
+          type: string
+          pattern: '^[a-zA-Z0-9_-]{2,100}$'
+          description: Identifier of the task to search (optional if taskId provided, recommended for AI agents)
+          example: my-app
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+          description: Maximum number of results to return
+        minScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.7
+          description: Minimum cosine similarity score (filters irrelevant results)
+          example: 0.7
+      required:
+        - query
+      oneOf:
+        - required: [taskId]
+        - required: [identifier]
+
+    SearchResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: search_results
+            attributes:
+              type: object
+              properties:
+                query:
+                  type: string
+                  example: authentication middleware
+                taskId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  example: my-app
+                minScore:
+                  type: number
+                  format: float
+                  description: Minimum score threshold used
+                  example: 0.7
+                resultCount:
+                  type: integer
+                  description: Number of results above minScore threshold
+                results:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchResult'
+
+    SearchResult:
+      type: object
+      properties:
+        filePath:
+          type: string
+          description: Relative path to the file
+          example: src/auth/handler.ts
+        content:
+          type: string
+          description: Code content of the chunk
+        startLine:
+          type: integer
+          description: First line number (1-indexed)
+        endLine:
+          type: integer
+          description: Last line number (inclusive)
+        score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Cosine similarity score (higher is better)
+          example: 0.92
+
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+                example: "404"
+              code:
+                type: string
+                example: TASK_NOT_FOUND
+              title:
+                type: string
+                example: Task Not Found
+              detail:
+                type: string
+                example: Task with ID 'my-app' not found
+              meta:
+                type: object
+                additionalProperties: true
