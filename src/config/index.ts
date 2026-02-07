@@ -51,6 +51,13 @@ export function loadConfig(configPath?: string): Config {
     };
   }
 
+  if (process.env.OPENAI_BASE_URL) {
+    envOverrides.openai = {
+      ...(fileConfig.openai as Record<string, unknown> || {}),
+      baseURL: process.env.OPENAI_BASE_URL,
+    };
+  }
+
   // Merge configs: defaults < file config < env overrides
   const mergedConfig = {
     ...fileConfig,

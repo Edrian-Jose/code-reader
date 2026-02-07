@@ -36,6 +36,7 @@ describe('Task Model', () => {
   describe('createTaskResponse', () => {
     const mockTask: Task = {
       taskId: 'test-task-id',
+      identifier: 'test-repo',
       version: 1,
       repositoryPath: '/test/path',
       status: 'pending',
@@ -46,6 +47,7 @@ describe('Task Model', () => {
         totalBatches: 4,
       },
       config: DEFAULT_TASK_CONFIG,
+      recommendedFileLimit: 133,
       createdAt: new Date('2026-02-07T10:00:00Z'),
       updatedAt: new Date('2026-02-07T10:05:00Z'),
       completedAt: null,
@@ -58,6 +60,7 @@ describe('Task Model', () => {
       expect(response.data.type).toBe('task');
       expect(response.data.id).toBe('test-task-id');
       expect(response.data.attributes.taskId).toBe('test-task-id');
+      expect(response.data.attributes.identifier).toBe('test-repo');
       expect(response.data.attributes.version).toBe(1);
       expect(response.data.attributes.status).toBe('pending');
     });

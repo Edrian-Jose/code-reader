@@ -7,6 +7,7 @@ export const MongoDbConfigSchema = z.object({
 
 export const OpenAIConfigSchema = z.object({
   embeddingModel: z.string().default('text-embedding-3-small'),
+  baseURL: z.string().optional(), // Optional custom API endpoint (e.g., Azure OpenAI, proxy)
 });
 
 export const ExtractionConfigSchema = z.object({

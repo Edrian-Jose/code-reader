@@ -199,18 +199,18 @@
 
 ### Services for User Story 3
 
-- [ ] T073 [US3] Implement progress calculation (percentage, files, batches) in src/services/task.ts
-- [ ] T074 [US3] Add completedAt and error fields to task retrieval in src/services/task.ts
+- [x] T073 [US3] Implement progress calculation (percentage, files, batches) in src/services/task.ts
+- [x] T074 [US3] Add completedAt and error fields to task retrieval in src/services/task.ts
 
 ### Routes for User Story 3
 
-- [ ] T075 [US3] Create GET /task/{id} endpoint in src/server/routes/task.ts
-- [ ] T076 [US3] Implement detailed progress response (JSON:API format) in src/server/routes/task.ts
-- [ ] T077 [US3] Implement 404 response for non-existent tasks in src/server/routes/task.ts
+- [x] T075 [US3] Create GET /task/{id} endpoint in src/server/routes/task.ts
+- [x] T076 [US3] Implement detailed progress response (JSON:API format) in src/server/routes/task.ts
+- [x] T077 [US3] Implement 404 response for non-existent tasks in src/server/routes/task.ts
 
 ### Tests for User Story 3
 
-- [ ] T078 [US3] Create integration test for GET /task/{id} endpoint in tests/integration/api-task.test.ts
+- [x] T078 [US3] Create integration test for GET /task/{id} endpoint in tests/integration/api-task.test.ts
 
 **Checkpoint**: User Story 3 complete - can monitor task progress
 
@@ -226,25 +226,25 @@
 
 ### Services for User Story 4
 
-- [ ] T079 [US4] Create search service in src/services/search.ts
-- [ ] T080 [US4] Implement query embedding generation in src/services/search.ts
-- [ ] T081 [US4] Implement MongoDB Atlas vector search aggregation in src/services/search.ts
-- [ ] T082 [US4] Implement in-memory cosine similarity fallback in src/services/search.ts
-- [ ] T083 [US4] Implement Atlas detection and automatic fallback selection in src/services/search.ts
-- [ ] T084 [US4] Implement result ranking and limiting in src/services/search.ts
-- [ ] T085 [US4] Implement chunk-to-result mapping (file path, content, lines, score) in src/services/search.ts
+- [x] T079 [US4] Create search service in src/services/search.ts
+- [x] T080 [US4] Implement query embedding generation in src/services/search.ts
+- [x] T081 [US4] Implement MongoDB Atlas vector search aggregation in src/services/search.ts
+- [x] T082 [US4] Implement in-memory cosine similarity fallback in src/services/search.ts
+- [x] T083 [US4] Implement Atlas detection and automatic fallback selection in src/services/search.ts
+- [x] T084 [US4] Implement result ranking and limiting in src/services/search.ts
+- [x] T085 [US4] Implement chunk-to-result mapping (file path, content, lines, score) in src/services/search.ts
 
 ### Routes for User Story 4
 
-- [ ] T086 [US4] Create POST /search_code endpoint in src/server/routes/search.ts
-- [ ] T087 [US4] Implement request validation (query, taskId, limit) in src/server/routes/search.ts
-- [ ] T088 [US4] Implement JSON:API response format for search results in src/server/routes/search.ts
-- [ ] T089 [US4] Register search routes in Express app in src/server/app.ts
+- [x] T086 [US4] Create POST /search_code endpoint in src/server/routes/search.ts
+- [x] T087 [US4] Implement request validation (query, taskId, limit) in src/server/routes/search.ts
+- [x] T088 [US4] Implement JSON:API response format for search results in src/server/routes/search.ts
+- [x] T089 [US4] Register search routes in Express app in src/server/app.ts
 
 ### Tests for User Story 4
 
-- [ ] T090 [P] [US4] Create unit tests for search service in tests/unit/search.test.ts
-- [ ] T091 [US4] Create integration test for POST /search_code endpoint in tests/integration/api-search.test.ts
+- [x] T090 [P] [US4] Create unit tests for search service in tests/unit/search.test.ts
+- [x] T091 [US4] Create integration test for POST /search_code endpoint in tests/integration/api-search.test.ts
 
 **Checkpoint**: User Story 4 complete - can search code semantically
 
@@ -260,20 +260,20 @@
 
 ### Setup Scripts
 
-- [ ] T092 [US5] Create database initialization script (npm run db:init) in scripts/db-init.ts
-- [ ] T093 [US5] Implement collection creation if not exists in scripts/db-init.ts
-- [ ] T094 [US5] Implement index creation in scripts/db-init.ts
-- [ ] T095 [US5] Create prerequisite check script in scripts/check-prereqs.ts
-- [ ] T096 [US5] Implement Node.js version check (>=18) in scripts/check-prereqs.ts
-- [ ] T097 [US5] Implement MongoDB connectivity check in scripts/check-prereqs.ts
+- [x] T092 [US5] Create database initialization script (npm run db:init) in scripts/db-init.ts
+- [x] T093 [US5] Implement collection creation if not exists in scripts/db-init.ts
+- [x] T094 [US5] Implement index creation in scripts/db-init.ts
+- [x] T095 [US5] Create prerequisite check script in scripts/check-prereqs.ts
+- [x] T096 [US5] Implement Node.js version check (>=18) in scripts/check-prereqs.ts
+- [x] T097 [US5] Implement MongoDB connectivity check in scripts/check-prereqs.ts
 
 ### Package Scripts
 
-- [ ] T098 [US5] Add npm scripts: start, dev, build, test, test:unit, test:integration, db:init, lint in package.json
+- [x] T098 [US5] Add npm scripts: start, dev, build, test, test:unit, test:integration, db:init, lint in package.json
 
 ### Tests for User Story 5
 
-- [ ] T099 [US5] Create test for prerequisite checker in tests/unit/prereqs.test.ts
+- [x] T099 [US5] Create test for prerequisite checker in tests/unit/prereqs.test.ts
 
 **Checkpoint**: User Story 5 complete - users can install and initialize the system
 
@@ -283,12 +283,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T100 [P] Add JSDoc comments to all public service methods
-- [ ] T101 [P] Create sample repository for testing in tests/fixtures/sample-repo/ with diverse file types
-- [ ] T102 Run full end-to-end test: create task -> process -> search
-- [ ] T103 Validate quickstart.md instructions work end-to-end
-- [ ] T104 [P] Add TypeScript strict mode compliance fixes if any
-- [ ] T105 Final code review and cleanup
+- [x] T100 [P] Add JSDoc comments to all public service methods
+- [x] T101 [P] Create sample repository for testing in tests/fixtures/sample-repo/ with diverse file types
+- [x] T102 Run full end-to-end test: create task -> process -> search
+- [x] T103 Validate quickstart.md instructions work end-to-end
+- [x] T104 [P] Add TypeScript strict mode compliance fixes if any
+- [x] T105 Final code review and cleanup
 
 ---
 

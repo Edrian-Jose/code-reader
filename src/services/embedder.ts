@@ -22,7 +22,17 @@ export class Embedder {
       if (!apiKey) {
         throw new OpenAIError('OPENAI_API_KEY environment variable is not set');
       }
-      this.client = new OpenAI({ apiKey });
+
+      const config = getConfig();
+      const clientOptions: { apiKey: string; baseURL?: string } = { apiKey };
+
+      // Use custom baseURL if configured (for Azure OpenAI, proxies, or custom endpoints)
+      if (config.openai.baseURL) {
+        clientOptions.baseURL = config.openai.baseURL;
+        logger.info(`Using custom OpenAI endpoint: ${config.openai.baseURL}`);
+      }
+
+      this.client = new OpenAI(clientOptions);
     }
     return this.client;
   }

@@ -6,7 +6,7 @@ import { createIndexes } from '../../src/db/indexes.js';
 import { resetConfig } from '../../src/config/index.js';
 import { COLLECTION_NAMES } from '../../src/db/collections.js';
 import type { Express } from 'express';
-import { mkdtempSync, rmdirSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -41,7 +41,7 @@ describe('Task API', () => {
     // Clean up temp directory
     if (tempDir) {
       try {
-        rmdirSync(tempDir, { recursive: true });
+        rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }
@@ -49,32 +49,36 @@ describe('Task API', () => {
   });
 
   describe('POST /task', () => {
-    it('should create a new task with valid repository path', async () => {
+    it('should create a new task with valid repository path and identifier', async () => {
       const response = await request(app)
         .post('/task')
-        .send({ repositoryPath: tempDir })
+        .send({ repositoryPath: tempDir, identifier: 'test-repo' })
         .expect(201);
 
       expect(response.body.data.type).toBe('task');
       expect(response.body.data.id).toBeDefined();
       expect(response.body.data.attributes.status).toBe('pending');
+      expect(response.body.data.attributes.identifier).toBe('test-repo');
       expect(response.body.data.attributes.version).toBe(1);
+      expect(response.body.data.attributes.progress.totalFiles).toBeGreaterThanOrEqual(0);
+      expect(response.body.data.attributes.recommendedFileLimit).toBeDefined();
     });
 
-    it('should increment version for same repository path', async () => {
+    it('should increment version for same identifier', async () => {
       // Create first task
       await request(app)
         .post('/task')
-        .send({ repositoryPath: tempDir })
+        .send({ repositoryPath: tempDir, identifier: 'my-app' })
         .expect(201);
 
-      // Create second task for same path
+      // Create second task for same identifier
       const response = await request(app)
         .post('/task')
-        .send({ repositoryPath: tempDir })
+        .send({ repositoryPath: tempDir, identifier: 'my-app' })
         .expect(201);
 
       expect(response.body.data.attributes.version).toBe(2);
+      expect(response.body.data.attributes.identifier).toBe('my-app');
     });
 
     it('should accept custom configuration', async () => {
@@ -82,6 +86,7 @@ describe('Task API', () => {
         .post('/task')
         .send({
           repositoryPath: tempDir,
+          identifier: 'custom-config-test',
           config: {
             batchSize: 25,
             chunkSize: 800,
@@ -92,10 +97,20 @@ describe('Task API', () => {
       expect(response.body.data.attributes.status).toBe('pending');
     });
 
-    it('should return 400 for missing repository path', async () => {
+    it('should return 400 for missing identifier', async () => {
       const response = await request(app)
         .post('/task')
-        .send({})
+        .send({ repositoryPath: tempDir })
+        .expect(400);
+
+      expect(response.body.errors).toBeDefined();
+      expect(response.body.errors[0].code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 400 for invalid identifier format', async () => {
+      const response = await request(app)
+        .post('/task')
+        .send({ repositoryPath: tempDir, identifier: 'invalid identifier!' })
         .expect(400);
 
       expect(response.body.errors).toBeDefined();
@@ -105,7 +120,7 @@ describe('Task API', () => {
     it('should return 400 for non-existent path', async () => {
       const response = await request(app)
         .post('/task')
-        .send({ repositoryPath: '/non/existent/path/12345' })
+        .send({ repositoryPath: '/non/existent/path/12345', identifier: 'invalid-path-test' })
         .expect(400);
 
       expect(response.body.errors).toBeDefined();
@@ -117,6 +132,7 @@ describe('Task API', () => {
         .post('/task')
         .send({
           repositoryPath: tempDir,
+          identifier: 'batch-size-test',
           config: { batchSize: 1000 },
         })
         .expect(400);
@@ -130,7 +146,7 @@ describe('Task API', () => {
       // Create a task first
       const createResponse = await request(app)
         .post('/task')
-        .send({ repositoryPath: tempDir })
+        .send({ repositoryPath: tempDir, identifier: 'get-task-test' })
         .expect(201);
 
       const taskId = createResponse.body.data.id;
@@ -142,6 +158,7 @@ describe('Task API', () => {
 
       expect(response.body.data.type).toBe('task');
       expect(response.body.data.id).toBe(taskId);
+      expect(response.body.data.attributes.identifier).toBe('get-task-test');
       expect(response.body.data.attributes.repositoryPath).toBe(tempDir);
       expect(response.body.data.attributes.progress).toBeDefined();
       expect(response.body.data.attributes.config).toBeDefined();
@@ -162,6 +179,62 @@ describe('Task API', () => {
         .expect(400);
 
       expect(response.body.errors).toBeDefined();
+    });
+
+    it('should include progress with percentComplete', async () => {
+      // Create a task
+      const createResponse = await request(app)
+        .post('/task')
+        .send({ repositoryPath: tempDir, identifier: 'progress-test' })
+        .expect(201);
+
+      const taskId = createResponse.body.data.id;
+
+      // Get task and check progress
+      const response = await request(app)
+        .get(`/task/${taskId}`)
+        .expect(200);
+
+      expect(response.body.data.attributes.progress).toBeDefined();
+      expect(response.body.data.attributes.progress.percentComplete).toBeDefined();
+      expect(typeof response.body.data.attributes.progress.percentComplete).toBe('number');
+      expect(response.body.data.attributes.progress.percentComplete).toBe(0); // New task has 0% progress
+    });
+
+    it('should include completedAt and error fields in detailed response', async () => {
+      // Create a task
+      const createResponse = await request(app)
+        .post('/task')
+        .send({ repositoryPath: tempDir, identifier: 'detailed-test' })
+        .expect(201);
+
+      const taskId = createResponse.body.data.id;
+
+      // Get detailed task info
+      const response = await request(app)
+        .get(`/task/${taskId}`)
+        .expect(200);
+
+      expect(response.body.data.attributes.completedAt).toBeDefined();
+      expect(response.body.data.attributes.error).toBeDefined();
+      expect(response.body.data.attributes.createdAt).toBeDefined();
+      expect(response.body.data.attributes.updatedAt).toBeDefined();
+    });
+
+    it('should get task by identifier', async () => {
+      // Create a task
+      await request(app)
+        .post('/task')
+        .send({ repositoryPath: tempDir, identifier: 'identifier-test' })
+        .expect(201);
+
+      // Get task by identifier
+      const response = await request(app)
+        .get('/task/by-identifier/identifier-test')
+        .expect(200);
+
+      expect(response.body.data.attributes.identifier).toBe('identifier-test');
+      expect(response.body.data.attributes.progress).toBeDefined();
     });
   });
 });
