@@ -9,7 +9,8 @@
       "Bash(npm run test:unit:*)",
       "Bash(git rev-parse:*)",
       "Bash(ls:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

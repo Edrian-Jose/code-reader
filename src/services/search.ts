@@ -24,6 +24,19 @@ export interface SearchOptions {
 export class SearchService {
   private useAtlasSearch: boolean | null = null;
 
+  /**
+   * Performs semantic search over embedded code chunks.
+   * Uses MongoDB Atlas Vector Search if available, otherwise falls back to in-memory cosine similarity.
+   * Results are filtered by minimum similarity score (default 0.7).
+   * @param options - Search parameters
+   * @param options.query - Natural language search query
+   * @param options.taskId - UUID of the task to search within
+   * @param options.limit - Maximum number of results (1-100, default 10)
+   * @param options.minScore - Minimum cosine similarity score (0-1, default 0.7)
+   * @returns Array of search results with file paths, content, line numbers, and similarity scores
+   * @throws ValidationError if query is empty, limit is out of range, or minScore is invalid
+   * @throws NotFoundError if task doesn't exist
+   */
   async search(options: SearchOptions): Promise<SearchResult[]> {
     const { query, taskId, limit = 10, minScore = 0.7 } = options;
 

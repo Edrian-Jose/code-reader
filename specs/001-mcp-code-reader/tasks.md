@@ -283,12 +283,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T100 [P] Add JSDoc comments to all public service methods
-- [ ] T101 [P] Create sample repository for testing in tests/fixtures/sample-repo/ with diverse file types
-- [ ] T102 Run full end-to-end test: create task -> process -> search
-- [ ] T103 Validate quickstart.md instructions work end-to-end
-- [ ] T104 [P] Add TypeScript strict mode compliance fixes if any
-- [ ] T105 Final code review and cleanup
+- [x] T100 [P] Add JSDoc comments to all public service methods
+- [x] T101 [P] Create sample repository for testing in tests/fixtures/sample-repo/ with diverse file types
+- [x] T102 Run full end-to-end test: create task -> process -> search
+- [x] T103 Validate quickstart.md instructions work end-to-end
+- [x] T104 [P] Add TypeScript strict mode compliance fixes if any
+- [x] T105 Final code review and cleanup
 
 ---
 

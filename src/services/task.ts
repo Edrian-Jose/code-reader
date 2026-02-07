@@ -17,6 +17,14 @@ import { FileScanner } from './scanner.js';
 const MAX_VERSIONS_TO_KEEP = 3;
 
 export class TaskService {
+  /**
+   * Creates a new extraction task with a user-friendly identifier.
+   * Scans repository immediately and calculates recommended file limit.
+   * @param input - Task creation parameters including repositoryPath and identifier
+   * @returns Created task with totalFiles and recommendedFileLimit
+   * @throws InvalidPathError if repository path doesn't exist or isn't a directory
+   * @throws ValidationError if identifier format is invalid
+   */
   async create(input: CreateTaskInput): Promise<Task> {
     // Validate repository path
     await this.validatePath(input.repositoryPath);
@@ -86,6 +94,12 @@ export class TaskService {
     return task;
   }
 
+  /**
+   * Retrieves a task by its UUID.
+   * @param taskId - UUID of the task
+   * @returns Task object
+   * @throws NotFoundError if task doesn't exist
+   */
   async getById(taskId: string): Promise<Task> {
     const collection = getTasksCollection();
     const task = await collection.findOne({ taskId });
@@ -97,6 +111,15 @@ export class TaskService {
     return task;
   }
 
+  /**
+   * Updates the status of a task.
+   * Sets completedAt timestamp when status is 'completed'.
+   * @param taskId - UUID of the task
+   * @param status - New status (pending, processing, completed, failed)
+   * @param error - Error message (required if status is 'failed')
+   * @returns Updated task
+   * @throws NotFoundError if task doesn't exist
+   */
   async updateStatus(taskId: string, status: TaskStatus, error?: string): Promise<Task> {
     const collection = getTasksCollection();
     const now = new Date();
@@ -128,6 +151,13 @@ export class TaskService {
     return result;
   }
 
+  /**
+   * Updates task progress metrics.
+   * @param taskId - UUID of the task
+   * @param progress - Partial progress update (totalFiles, processedFiles, currentBatch, totalBatches)
+   * @returns Updated task
+   * @throws NotFoundError if task doesn't exist
+   */
   async updateProgress(taskId: string, progress: Partial<TaskProgress>): Promise<Task> {
     const collection = getTasksCollection();
     const now = new Date();
@@ -160,6 +190,12 @@ export class TaskService {
     return result;
   }
 
+  /**
+   * Retrieves the latest version of a task by its user-friendly identifier.
+   * @param identifier - User-friendly identifier (e.g., "my-app")
+   * @returns Latest version of the task
+   * @throws NotFoundError if no task with this identifier exists
+   */
   async getByIdentifier(identifier: string): Promise<Task> {
     const collection = getTasksCollection();
     const task = await collection.findOne({ identifier }, { sort: { version: -1 } });

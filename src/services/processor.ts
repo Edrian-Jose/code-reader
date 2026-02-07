@@ -16,6 +16,12 @@ import type { Embedding } from '../models/embedding.js';
 export class BatchProcessor {
   private stopRequests: Set<string> = new Set();
 
+  /**
+   * Starts background processing for a task with optional file limit.
+   * Processing happens asynchronously; progress can be monitored via task status.
+   * @param taskId - UUID of the task to process
+   * @param fileLimit - Optional maximum number of files to process before stopping
+   */
   async startProcessing(taskId: string, fileLimit?: number): Promise<void> {
     // Clear any previous stop request
     this.stopRequests.delete(taskId);
@@ -26,6 +32,11 @@ export class BatchProcessor {
     });
   }
 
+  /**
+   * Requests to stop ongoing processing gracefully after current batch completes.
+   * @param taskId - UUID of the task to stop
+   * @returns true if stop request was queued, false if task is not currently processing
+   */
   async stopProcessing(taskId: string): Promise<boolean> {
     if (!taskQueue.isTaskQueued(taskId)) {
       return false;
