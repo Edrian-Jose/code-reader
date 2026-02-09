@@ -13,10 +13,13 @@ const openai = new OpenAI({
 });
 
 export interface LLMAnalysisRequest {
-  domain: string;
-  codeChunks: string[];
-  claudeContext?: string;
-  analysisType: 'architecture' | 'domain' | 'comprehensive';
+ domain: string;
+ domainDescription?: string;
+ isFoundational?: boolean;
+ dependencies?: string[];
+ codeChunks: string[];
+ claudeContext?: string;
+ analysisType: "architecture" | "domain" | "comprehensive";
 }
 
 export interface LLMDocumentationResult {
@@ -74,18 +77,25 @@ export interface LLMAnalysisResult {
  * Build comprehensive analysis prompt for GPT-4
  */
 function buildAnalysisPrompt(request: LLMAnalysisRequest): string {
-  const { domain, codeChunks, claudeContext } = request;
+  const {
+   domain,
+   domainDescription,
+   isFoundational,
+   dependencies,
+   codeChunks,
+   claudeContext,
+  } = request;
+
+  // Build domain context section
+  let domainContextSection = `Your task: Analyze the "${domain}" domain in this codebase and produce detailed, insightful documentation suitable for system reconstruction (v2 rebuild).`;
 
   const systemArchitecturePrompt = `You are a technical documentation expert specializing in reconstruction-grade documentation.
 
-Your task: Analyze the "${domain}" domain in this codebase and produce detailed, insightful documentation suitable for system reconstruction (v2 rebuild).
+${domainContextSection}
 
-${claudeContext ? `CONTEXT FROM CLAUDE.MD:\n${claudeContext}\n\n` : ''}
+${claudeContext ? `\nCONTEXT FROM CLAUDE.MD:\n${claudeContext}\n\n` : ""}
 
 CODE TO ANALYZE (${codeChunks.length} relevant code chunks):
-${codeChunks.slice(0, 20).join('\n\n---\n\n')}
-
-${codeChunks.length > 20 ? `\n(${codeChunks.length - 20} additional chunks omitted to stay within token limits)` : ''}
 
 INSTRUCTIONS:
 
@@ -177,7 +187,7 @@ Return ONLY a valid JSON object (no markdown code fences) matching this structur
 
 /**
  * Calculate cost for GPT-4 API usage
- * Pricing: gpt-4-turbo (as of 2024): $10/1M input tokens, $30/1M output tokens
+ * Pricing: gpt-4 (as of 2024): $10/1M input tokens, $30/1M output tokens
  */
 function calculateCost(inputTokens: number, outputTokens: number, _model: string): number {
   // GPT-4 Turbo pricing
@@ -208,19 +218,19 @@ export async function analyzeWithLLM(request: LLMAnalysisRequest): Promise<LLMAn
     const startTime = Date.now();
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a technical documentation expert. Analyze code deeply and produce detailed, insightful documentation. Focus on business logic, conceptual flows, and architectural understanding. Avoid shallow descriptions. Return ONLY valid JSON without markdown code fences.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.3, // Low temperature for consistency
+     model: "gpt-4",
+     messages: [
+      {
+       role: "system",
+       content:
+        "You are a technical documentation expert. Analyze code deeply and produce detailed, insightful documentation. Focus on business logic, conceptual flows, and architectural understanding. Avoid shallow descriptions. Return ONLY valid JSON without markdown code fences.",
+      },
+      {
+       role: "user",
+       content: prompt,
+      },
+     ],
+     temperature: 0.3, // Low temperature for consistency
     });
 
     const analysisTime = Date.now() - startTime;
@@ -229,7 +239,7 @@ export async function analyzeWithLLM(request: LLMAnalysisRequest): Promise<LLMAn
     const inputTokens = completion.usage?.prompt_tokens || 0;
     const outputTokens = completion.usage?.completion_tokens || 0;
     const totalTokens = completion.usage?.total_tokens || 0;
-    const costUSD = calculateCost(inputTokens, outputTokens, 'gpt-4-turbo');
+    const costUSD = calculateCost(inputTokens, outputTokens, "gpt-4");
 
     logger.info('LLM analysis complete', {
       domain: request.domain,
@@ -263,14 +273,14 @@ export async function analyzeWithLLM(request: LLMAnalysisRequest): Promise<LLMAn
       };
 
       return {
-        documentation: emptyDoc,
-        actualCost: {
-          inputTokens,
-          outputTokens,
-          totalTokens,
-          costUSD,
-          model: 'gpt-4-turbo',
-        },
+       documentation: emptyDoc,
+       actualCost: {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        costUSD,
+        model: "gpt-4",
+       },
       };
     }
 
@@ -282,14 +292,14 @@ export async function analyzeWithLLM(request: LLMAnalysisRequest): Promise<LLMAn
     });
 
     return {
-      documentation: result as LLMDocumentationResult,
-      actualCost: {
-        inputTokens,
-        outputTokens,
-        totalTokens,
-        costUSD,
-        model: 'gpt-4-turbo',
-      },
+     documentation: result as LLMDocumentationResult,
+     actualCost: {
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      costUSD,
+      model: "gpt-4",
+     },
     };
   } catch (error: any) {
     logger.error('LLM analysis failed', {
@@ -312,14 +322,14 @@ export async function analyzeWithLLM(request: LLMAnalysisRequest): Promise<LLMAn
     };
 
     return {
-      documentation: emptyDoc,
-      actualCost: {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        costUSD: 0,
-        model: 'gpt-4-turbo',
-      },
+     documentation: emptyDoc,
+     actualCost: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUSD: 0,
+      model: "gpt-4",
+     },
     };
   }
 }
@@ -426,19 +436,19 @@ CRITICAL: Include ALL subsystems. Missing domains = incomplete documentation = f
     const startTime = Date.now();
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a software architect analyzing a codebase. Identify ALL bounded contexts and domains comprehensively. Missing domains means failed system reconstruction. Be thorough.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.2, // Very low for consistent structural analysis
+     model: "gpt-4",
+     messages: [
+      {
+       role: "system",
+       content:
+        "You are a software architect analyzing a codebase. Identify ALL bounded contexts and domains comprehensively. Missing domains means failed system reconstruction. Be thorough.",
+      },
+      {
+       role: "user",
+       content: prompt,
+      },
+     ],
+     temperature: 0.2, // Very low for consistent structural analysis
     });
 
     const analysisTime = Date.now() - startTime;
@@ -447,7 +457,7 @@ CRITICAL: Include ALL subsystems. Missing domains = incomplete documentation = f
     const inputTokens = completion.usage?.prompt_tokens || 0;
     const outputTokens = completion.usage?.completion_tokens || 0;
     const totalTokens = completion.usage?.total_tokens || 0;
-    const costUSD = calculateCost(inputTokens, outputTokens, 'gpt-4-turbo');
+    const costUSD = calculateCost(inputTokens, outputTokens, "gpt-4");
 
     logger.info('Domain identification complete', {
       analysisTime: `${analysisTime}ms`,

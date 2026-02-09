@@ -92,10 +92,24 @@ export async function executeNextTask(identifier: string): Promise<Documentation
 
   try {
    // T034-T035: Synthesize documentation from sources using LLM-powered analysis
+   // Pass domain metadata to provide context for LLM analysis
+
+   // Resolve task dependencies to domain names
+   const dependencyDomains: string[] = [];
+   if (nextTask.dependencies.length > 0) {
+     const dependencyTasks = allTasks.filter(t => nextTask.dependencies.includes(t.taskId));
+     dependencyDomains.push(...dependencyTasks.map(t => t.domain));
+   }
+
    const synthesized = await synthesizeDocumentation(
     nextTask.domain,
     nextTask.sourcesRequired,
-    plan.repositoryIdentifier
+    plan.repositoryIdentifier,
+    {
+      description: nextTask.description,
+      isFoundational: nextTask.isFoundational,
+      dependencies: dependencyDomains,
+    }
    );
 
    // T036: Generate and validate artifact

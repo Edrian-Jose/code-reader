@@ -5,14 +5,14 @@ export interface BusinessRule {
   name: string;
   description: string;
   rationale: string;
-  sources: SourceType[];
+  sources: string[]; // File paths from LLM codeReference
 }
 
 export interface ProgramFlow {
   name: string;
   description: string;
   steps: string[];
-  sources: SourceType[];
+  sources: string[]; // File paths from LLM codeReference
 }
 
 export interface DomainModel {
@@ -23,7 +23,7 @@ export interface DomainModel {
     type: string;
     description: string;
   }>;
-  sources: SourceType[];
+  sources: string[]; // File paths from LLM codeReference
 }
 
 export interface Contract {
@@ -38,14 +38,14 @@ export interface Contract {
     name: string;
     type: string;
   }>;
-  sources: SourceType[];
+  sources: string[]; // File paths from LLM codeReference
 }
 
 export interface UserStory {
   title: string;
   description: string;
   acceptanceCriteria: string[];
-  sources: SourceType[];
+  sources: string[]; // File paths from external documentation
 }
 
 export interface Citation {
