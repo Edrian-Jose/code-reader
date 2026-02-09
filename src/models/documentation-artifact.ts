@@ -73,6 +73,12 @@ export interface DocumentationArtifact {
   citations: Citation[]; // Source attributions
   markdownContent: string; // Rendered markdown
   qualityScore?: number; // 0-100 score from validation
+  llmCost?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUSD: number;
+  };
   generatedAt: Date;
 }
 

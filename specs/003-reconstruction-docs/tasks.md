@@ -121,7 +121,17 @@
 
 ---
 
-## Phase 6: User Story 4 - Configure Documentation Sources (Priority: P3)
+## Phase 6: User Story 4 - Configure Documentation Sources (Priority: P3) ⚠️ DEFERRED
+
+**Status**: ⚠️ **DEFERRED** - Implementation not production ready
+
+**Reason**: Confluence integration requires more refinement in:
+- CQL query construction and phrase-based searching
+- GPT-4 relevance filtering and confidence thresholds
+- Tag-based correlation between code items and Confluence pages
+- Full page content extraction vs excerpt handling
+
+**POC Available**: Working proof-of-concept exists in `scripts/poc-confluence-enrichment.ts`
 
 **Goal**: Enable optional external source configuration (Confluence) with MCP client authentication delegation
 
@@ -129,18 +139,25 @@
 
 ### Implementation for User Story 4
 
-- [ ] T050 [P] [US4] Implement ExternalSourceAdapter service in src/services/external-source-adapter.ts
-- [ ] T051 [US4] Implement MCP tool call wrapper for Confluence queries in external-source-adapter.ts (searchConfluenceUsingCql, getConfluencePage)
-- [ ] T052 [US4] Implement timeout logic (30-second timeout) in external-source-adapter.ts
-- [ ] T053 [US4] Implement retry logic with exponential backoff (2 retries, 1s and 2s delays) in external-source-adapter.ts
-- [ ] T054 [US4] Implement graceful degradation on retry exhaustion in external-source-adapter.ts (mark [EXTERNAL SOURCE UNAVAILABLE], continue)
-- [ ] T055 [US4] Integrate Confluence enrichment into SourceSynthesizer service (call external-source-adapter when configured)
-- [ ] T056 [US4] Add POST /documentation/source/configure endpoint in src/routes/documentation-routes.ts
-- [ ] T057 [US4] Add validation for external source configuration (cloud ID, source type, plan ID)
-- [ ] T058 [US4] Add error handling for invalid configurations, authentication expiry (mark task as blocked, not failed)
-- [ ] T059 [US4] Add logging for external source integration status (success/failure, query, response time)
+- [~] T050 [P] [US4] Implement ExternalSourceAdapter service in src/services/external-source-adapter.ts (**COMMENTED OUT**)
+- [~] T051 [US4] Implement MCP tool call wrapper for Confluence queries (**COMMENTED OUT**)
+- [~] T052 [US4] Implement timeout logic (30-second timeout) (**COMMENTED OUT**)
+- [~] T053 [US4] Implement retry logic with exponential backoff (**COMMENTED OUT**)
+- [~] T054 [US4] Implement graceful degradation (**COMMENTED OUT**)
+- [~] T055 [US4] Integrate Confluence enrichment into SourceSynthesizer (**COMMENTED OUT**)
+- [~] T056 [US4] Add POST /documentation/source/configure endpoint (**COMMENTED OUT**)
+- [~] T057 [US4] Add validation for external source configuration (**COMMENTED OUT**)
+- [~] T058 [US4] Add error handling for invalid configurations (**COMMENTED OUT**)
+- [~] T059 [US4] Add logging for external source integration (**COMMENTED OUT**)
 
-**Checkpoint**: All user stories should now be independently functional - complete feature set including optional Confluence enrichment
+**Code Location** (commented out):
+- `src/index.ts` - Confluence client initialization
+- `src/server/routes/documentation.ts` - `/source/configure` endpoint (lines 384-502)
+- `src/services/source-synthesizer.ts` - Confluence enrichment logic (lines 306-316)
+- `src/mcp/confluence-client.ts` - Direct Confluence API client (exists but not used)
+- `src/services/external-source-adapter.ts` - Query/retry logic (exists but not used)
+
+**Checkpoint**: Phase 6 deferred - **Core documentation generation (Phases 1-5) is production-ready and complete**
 
 ---
 

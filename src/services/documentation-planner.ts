@@ -14,6 +14,7 @@ import { detectCycle, mergeCyclicNodes } from '../utils/dependency-graph.js';
 import { logger } from '../utils/logger.js';
 import { searchService } from './search.js';
 import { taskService } from './task.js';
+import { identifyDomainsWithLLM } from './llm-analyzer.js';
 
 /**
  * Create a new documentation plan for a repository
@@ -37,17 +38,25 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
 
   logger.info('Calculated plan version', { identifier: input.identifier, version });
 
-  // T020: Implement task decomposition
-  // Step 1: Analyze CLAUDE.md if available
+  // T020: Implement task decomposition with LLM
+  // Step 1: Get CLAUDE.md content for system context
   const architectureContext = await analyzeCLAUDEmd(input.repositoryIdentifier);
+  const claudeContent = architectureContext.architecture || architectureContext.systemIntent || '';
 
-  // Step 2: Identify domains/features from code and CLAUDE.md
-  const domains = await identifyDomains(input.repositoryIdentifier, architectureContext);
+  // Step 2: Sample code structure for GPT-4 analysis
+  const codeStructureSample = await sampleCodeStructure(input.repositoryIdentifier);
 
-  logger.info('Identified domains for documentation', { count: domains.length, domains });
+  // Step 3: Use GPT-4 to identify ALL domains comprehensively
+  const domainAnalysis = await identifyDomainsWithLLM(claudeContent, codeStructureSample);
 
-  // Step 3: Create tasks for each domain
-  const tasks = await createTasksForDomains(domains, planId, input.repositoryIdentifier);
+  logger.info('GPT-4 identified domains comprehensively', {
+    domainCount: domainAnalysis.domains.length,
+    domains: domainAnalysis.domains.map((d) => d.name),
+    llmCost: `$${domainAnalysis.cost.costUSD.toFixed(4)}`,
+  });
+
+  // Step 4: Create tasks for each identified domain
+  const tasks = createTasksFromDomainAnalysis(domainAnalysis.domains, planId);
 
   // T021: Implement dependency detection
   detectAndAssignDependencies(tasks);
@@ -82,7 +91,21 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
 
   logger.info('Assigned priority scores', { taskCount: tasks.length });
 
-  // Create plan entity
+  // Parse externalSources from input
+  const externalSources = parseExternalSources(input.externalSources, planId);
+
+  // If Confluence is configured, add 'confluence' to all tasks' sourcesRequired
+  const hasConfluence = externalSources && externalSources.some((src) => src.sourceType === 'confluence' && src.enabled);
+  if (hasConfluence) {
+    tasks.forEach((task) => {
+      if (!task.sourcesRequired.includes('confluence')) {
+        task.sourcesRequired.push('confluence');
+      }
+    });
+    logger.info('Added Confluence to sourcesRequired for all tasks', { taskCount: tasks.length });
+  }
+
+  // Create plan entity with planning cost
   const now = new Date();
   const plan: DocumentationPlan = {
     planId,
@@ -97,6 +120,13 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
       currentTask: null,
     },
     heuristic: DEFAULT_HEURISTIC,
+    externalSources, // Include external sources if configured
+    planningCost: {
+      inputTokens: domainAnalysis.cost.inputTokens,
+      outputTokens: domainAnalysis.cost.outputTokens,
+      totalTokens: domainAnalysis.cost.totalTokens,
+      costUSD: domainAnalysis.cost.costUSD,
+    },
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -126,105 +156,80 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
 }
 
 /**
- * Identify domains/features from repository analysis
- * Uses CLAUDE.md analysis and code chunk queries
+ * Sample code structure for GPT-4 analysis
+ * Gathers representative files from different parts of the codebase
  */
-async function identifyDomains(repositoryIdentifier: string, architectureContext: any): Promise<string[]> {
-  const domains: string[] = [];
+async function sampleCodeStructure(repositoryIdentifier: string): Promise<string[]> {
+  logger.info('Sampling code structure for domain identification');
 
-  // Add domains from CLAUDE.md bounded contexts
-  if (architectureContext.boundedContexts && architectureContext.boundedContexts.length > 0) {
-    domains.push(...architectureContext.boundedContexts);
-  }
-
-  // If CLAUDE.md doesn't provide domains, infer from code structure
-  // Query for common architectural patterns
   const task = await taskService.getByIdentifier(repositoryIdentifier);
   if (!task) {
-    logger.warn('Code extraction task not found, using default domain', { repositoryIdentifier });
-    return ['System Architecture']; // Default fallback
+    logger.warn('Repository not found for code sampling', { repositoryIdentifier });
+    return [];
   }
 
-  // Search for service/controller/model patterns to identify domains
-  try {
-    const serviceResults = await searchService.search({
-      query: 'service class implementation business logic',
-      taskId: task.taskId,
-      limit: 20,
-      minScore: 0.6,
-    });
+  const samples: string[] = [];
 
-    // Extract domain names from file paths
-    const detectedDomains = new Set<string>();
-    for (const result of serviceResults) {
-      const parts = result.filePath.split('/');
-      // Look for domain indicators in path (e.g., src/services/auth-service.ts → Auth)
-      const serviceName = parts[parts.length - 1].replace(/[-_](service|controller|handler)\.ts/, '');
-      if (serviceName && serviceName.length > 0) {
-        const domainName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
-        detectedDomains.add(domainName);
+  // Sample different types of files to understand structure
+  const sampleQueries = [
+    'main entry point index application',
+    'service business logic',
+    'model entity interface type definition',
+    'route endpoint API handler',
+    'database connection repository',
+    'configuration settings',
+  ];
+
+  for (const query of sampleQueries) {
+    try {
+      const results = await searchService.search({
+        query,
+        taskId: task.taskId,
+        limit: 3,
+        minScore: 0.5,
+      });
+
+      for (const result of results) {
+        samples.push(`FILE: ${result.filePath}\n${result.content.substring(0, 500)}...`);
       }
+    } catch (error) {
+      logger.debug('Sample query failed', { query });
     }
-
-    if (detectedDomains.size > 0) {
-      domains.push(...Array.from(detectedDomains));
-    }
-  } catch (error) {
-    logger.warn('Failed to detect domains from code', { error });
   }
 
-  // Ensure at least one domain
-  if (domains.length === 0) {
-    domains.push('System Architecture');
-  }
+  logger.info('Code structure sampled', { sampleCount: samples.length });
 
-  return [...new Set(domains)]; // Deduplicate
+  return samples;
 }
 
 /**
- * Create documentation tasks for identified domains
+ * Create documentation tasks from LLM domain analysis
+ * Uses GPT-4's comprehensive domain identification (includes ALL subsystems)
  */
-async function createTasksForDomains(
-  domains: string[],
-  planId: string,
-  _repositoryIdentifier: string
-): Promise<DocumentationTask[]> {
+function createTasksFromDomainAnalysis(
+  domains: Array<{ name: string; description: string; isFoundational: boolean; dependencies: string[] }>,
+  planId: string
+): DocumentationTask[] {
   const tasks: DocumentationTask[] = [];
   const now = new Date();
+  const taskMap = new Map<string, string>(); // domain name → taskId
 
-  // Always create a foundational task for system architecture
-  tasks.push({
-    taskId: uuidv4(),
-    planId,
-    domain: 'System Architecture',
-    description: 'Document overall system architecture, design philosophy, and core principles',
-    priorityScore: 0, // Will be calculated later
-    dependencies: [],
-    sourcesRequired: ['claude_md', 'code_chunks'] as SourceType[],
-    isFoundational: true,
-    estimatedComplexity: 5,
-    status: 'pending',
-    artifactRef: null,
-    startedAt: null,
-    completedAt: null,
-    error: null,
-    createdAt: now,
-  });
-
-  // Create tasks for each domain
+  // Create tasks for all domains
   for (const domain of domains) {
-    if (domain === 'System Architecture') continue; // Already added
+    const taskId = uuidv4();
+    taskMap.set(domain.name, taskId);
 
+    // Dependencies will be resolved in next step
     tasks.push({
-      taskId: uuidv4(),
+      taskId,
       planId,
-      domain,
-      description: `Document ${domain} domain including business rules, program flows, and data models`,
-      priorityScore: 0, // Will be calculated later
-      dependencies: [tasks[0].taskId], // Depend on system architecture
-      sourcesRequired: ['code_chunks'] as SourceType[],
-      isFoundational: false,
-      estimatedComplexity: 4,
+      domain: domain.name,
+      description: domain.description,
+      priorityScore: 0, // Will be calculated by prioritizer
+      dependencies: [], // Will be populated based on domain.dependencies
+      sourcesRequired: ['claude_md', 'code_chunks'] as SourceType[],
+      isFoundational: domain.isFoundational,
+      estimatedComplexity: domain.isFoundational ? 7 : 5,
       status: 'pending',
       artifactRef: null,
       startedAt: null,
@@ -233,6 +238,26 @@ async function createTasksForDomains(
       createdAt: now,
     });
   }
+
+  // Resolve dependencies (convert domain names to taskIds)
+  for (let i = 0; i < tasks.length; i++) {
+    const domain = domains[i];
+    const task = tasks[i];
+
+    for (const depName of domain.dependencies) {
+      const depTaskId = taskMap.get(depName);
+      if (depTaskId) {
+        task.dependencies.push(depTaskId);
+      } else {
+        logger.warn('Dependency not found', { task: task.domain, dependency: depName });
+      }
+    }
+  }
+
+  logger.info('Tasks created from LLM domain analysis', {
+    taskCount: tasks.length,
+    foundationalCount: tasks.filter((t) => t.isFoundational).length,
+  });
 
   return tasks;
 }
@@ -245,6 +270,41 @@ function detectAndAssignDependencies(tasks: DocumentationTask[]): void {
   // Already assigned in createTasksForDomains
   // More sophisticated dependency detection could analyze code relationships
   logger.debug('Dependencies assigned', { taskCount: tasks.length });
+}
+
+/**
+ * Parse external sources from plan input and convert to ExternalSourceConfig format
+ */
+function parseExternalSources(
+  externalSourcesInput: CreatePlanInput['externalSources'] | undefined,
+  planId: string
+): import('../models/external-source-config.js').ExternalSourceConfig[] | undefined {
+  if (!externalSourcesInput) {
+    return undefined;
+  }
+
+  const configs: import('../models/external-source-config.js').ExternalSourceConfig[] = [];
+
+  // Parse Confluence config
+  if (externalSourcesInput.confluence?.enabled && externalSourcesInput.confluence.cloudId) {
+    configs.push({
+      configId: uuidv4(), // Use existing uuidv4 import from top of file
+      planId: planId,
+      sourceType: 'confluence',
+      enabled: true,
+      connectionParams: {
+        cloudId: externalSourcesInput.confluence.cloudId,
+      },
+      authDelegation: {
+        protocol: 'mcp',
+        upstreamServer: 'atlassian',
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  return configs.length > 0 ? configs : undefined;
 }
 
 /**

@@ -15,6 +15,9 @@
     "db:init": "tsx scripts/db-init.ts",
     "db:init:docs": "tsx scripts/db-init-docs.ts",
     "prereqs": "tsx scripts/check-prereqs.ts",
+    "poc:docs": "tsx scripts/poc-llm-docs.ts",
+    "poc:confluence": "tsx scripts/poc-confluence-enrichment.ts",
+    "debug:confluence": "tsx scripts/debug-confluence-query.ts",
     "lint": "eslint src/**/*.ts"
   },
   "keywords": [

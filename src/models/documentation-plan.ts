@@ -24,6 +24,13 @@ export interface DocumentationPlan {
   status: PlanStatus;
   progress: PlanProgress;
   heuristic: PrioritizationHeuristic;
+  externalSources?: Array<import('./external-source-config.js').ExternalSourceConfig>; // Optional Confluence/external sources
+  planningCost?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUSD: number;
+  };
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;

@@ -133,10 +133,16 @@ export async function generateArtifact(
     citations: synthesized.citations,
     markdownContent,
     qualityScore,
+    llmCost: synthesized.llmCost,
     generatedAt: now,
   };
 
-  logger.info('Artifact generated successfully', { domain, artifactId, qualityScore });
+  logger.info('Artifact generated successfully', {
+    domain,
+    artifactId,
+    qualityScore,
+    llmCost: synthesized.llmCost ? `$${synthesized.llmCost.costUSD.toFixed(4)}` : 'N/A',
+  });
 
   return artifact;
 }

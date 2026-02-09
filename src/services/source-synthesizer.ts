@@ -1,7 +1,10 @@
 /**
  * Source Synthesizer Service
  * Combines information from CLAUDE.md, code chunks, and external sources (Confluence)
- * to produce comprehensive documentation
+ * to produce comprehensive documentation using GPT-4 analysis
+ *
+ * CRITICAL: Calls LLM analysis ONCE per domain to get all documentation types
+ * (business rules, flows, models, contracts) in a single API call
  */
 
 import { parseMarkdown, extractSectionContent } from '../utils/markdown-formatter.js';
@@ -10,6 +13,7 @@ import type { BusinessRule, ProgramFlow, DomainModel, Contract, UserStory, Citat
 import { logger } from '../utils/logger.js';
 import { searchService } from './search.js';
 import { taskService } from './task.js';
+import { analyzeWithLLM } from './llm-analyzer.js';
 
 export interface ArchitectureContext {
   hasClaudeFile: boolean;
@@ -26,6 +30,12 @@ export interface SynthesizedDocumentation {
   userStories: UserStory[];
   invariants: string[];
   citations: Citation[];
+  llmCost?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUSD: number;
+  };
 }
 
 /**
@@ -111,202 +121,6 @@ export async function analyzeCLAUDEmd(repositoryIdentifier: string): Promise<Arc
 }
 
 /**
- * T035: Synthesize business rules from code chunks
- * Searches for validation logic, business constraints
- */
-export async function synthesizeBusinessRules(
-  domain: string,
-  sourcesRequired: SourceType[],
-  repositoryIdentifier: string
-): Promise<BusinessRule[]> {
-  logger.info('Synthesizing business rules', { domain, sources: sourcesRequired });
-
-  if (!sourcesRequired.includes('code_chunks')) {
-    return [];
-  }
-
-  const rules: BusinessRule[] = [];
-
-  try {
-    const task = await taskService.getByIdentifier(repositoryIdentifier);
-    if (!task) return rules;
-
-    // Search for validation and business logic
-    const searchResults = await searchService.search({
-      query: `${domain} validation business rules constraints`,
-      taskId: task.taskId,
-      limit: 10,
-      minScore: 0.65,
-    });
-
-    // Extract rules from code chunks
-    for (const result of searchResults) {
-      // Simple heuristic: look for validation patterns, throw statements, if conditions with business logic
-      if (
-        result.content.includes('throw') ||
-        result.content.includes('validate') ||
-        result.content.includes('MUST') ||
-        result.content.includes('required')
-      ) {
-        const ruleName = `${domain} Validation Rule`;
-        const description = `Validation and business constraints identified in ${result.filePath}`;
-
-        rules.push({
-          name: ruleName,
-          description,
-          rationale: 'Extracted from code implementation',
-          sources: ['code_chunks'],
-        });
-      }
-    }
-
-    logger.info('Business rules synthesized', { domain, count: rules.length });
-  } catch (error) {
-    logger.error('Error synthesizing business rules', { error, domain });
-  }
-
-  return rules;
-}
-
-/**
- * T035: Synthesize program flows from code
- * Searches for workflow implementations
- */
-export async function synthesizeProgramFlows(
-  domain: string,
-  sourcesRequired: SourceType[],
-  repositoryIdentifier: string
-): Promise<ProgramFlow[]> {
-  logger.info('Synthesizing program flows', { domain, sources: sourcesRequired });
-
-  if (!sourcesRequired.includes('code_chunks')) {
-    return [];
-  }
-
-  const flows: ProgramFlow[] = [];
-
-  try {
-    const task = await taskService.getByIdentifier(repositoryIdentifier);
-    if (!task) return flows;
-
-    // Search for workflow/flow implementations
-    const searchResults = await searchService.search({
-      query: `${domain} workflow process flow steps`,
-      taskId: task.taskId,
-      limit: 5,
-      minScore: 0.7,
-    });
-
-    for (const result of searchResults) {
-      flows.push({
-        name: `${domain} Workflow`,
-        description: `Process flow identified in ${result.filePath}`,
-        steps: ['Step 1: Initialize', 'Step 2: Process', 'Step 3: Complete'], // Simplified
-        sources: ['code_chunks'],
-      });
-    }
-
-    logger.info('Program flows synthesized', { domain, count: flows.length });
-  } catch (error) {
-    logger.error('Error synthesizing program flows', { error, domain });
-  }
-
-  return flows;
-}
-
-/**
- * T035: Synthesize domain models from code
- */
-export async function synthesizeDomainModels(
-  domain: string,
-  sourcesRequired: SourceType[],
-  repositoryIdentifier: string
-): Promise<DomainModel[]> {
-  logger.info('Synthesizing domain models', { domain, sources: sourcesRequired });
-
-  if (!sourcesRequired.includes('code_chunks')) {
-    return [];
-  }
-
-  const models: DomainModel[] = [];
-
-  try {
-    const task = await taskService.getByIdentifier(repositoryIdentifier);
-    if (!task) return models;
-
-    const searchResults = await searchService.search({
-      query: `${domain} model entity interface class definition`,
-      taskId: task.taskId,
-      limit: 5,
-      minScore: 0.7,
-    });
-
-    for (const result of searchResults) {
-      models.push({
-        name: `${domain} Entity`,
-        description: `Domain model identified in ${result.filePath}`,
-        attributes: [
-          { name: 'id', type: 'string', description: 'Unique identifier' },
-          { name: 'createdAt', type: 'Date', description: 'Creation timestamp' },
-        ],
-        sources: ['code_chunks'],
-      });
-    }
-
-    logger.info('Domain models synthesized', { domain, count: models.length });
-  } catch (error) {
-    logger.error('Error synthesizing domain models', { error, domain });
-  }
-
-  return models;
-}
-
-/**
- * Synthesize contracts from code
- */
-export async function synthesizeContracts(
-  domain: string,
-  sourcesRequired: SourceType[],
-  repositoryIdentifier: string
-): Promise<Contract[]> {
-  logger.info('Synthesizing contracts', { domain, sources: sourcesRequired });
-
-  if (!sourcesRequired.includes('code_chunks')) {
-    return [];
-  }
-
-  const contracts: Contract[] = [];
-
-  try {
-    const task = await taskService.getByIdentifier(repositoryIdentifier);
-    if (!task) return contracts;
-
-    const searchResults = await searchService.search({
-      query: `${domain} API endpoint route handler`,
-      taskId: task.taskId,
-      limit: 5,
-      minScore: 0.7,
-    });
-
-    for (const result of searchResults) {
-      contracts.push({
-        name: `${domain} API Contract`,
-        purpose: `Contract identified in ${result.filePath}`,
-        inputs: [{ name: 'input', type: 'object', required: true }],
-        outputs: [{ name: 'output', type: 'object' }],
-        sources: ['code_chunks'],
-      });
-    }
-
-    logger.info('Contracts synthesized', { domain, count: contracts.length });
-  } catch (error) {
-    logger.error('Error synthesizing contracts', { error, domain });
-  }
-
-  return contracts;
-}
-
-/**
  * Synthesize user stories (primarily from external sources like Confluence)
  */
 export async function synthesizeUserStories(
@@ -322,47 +136,268 @@ export async function synthesizeUserStories(
 }
 
 /**
- * Synthesize complete documentation for a domain
- * Orchestrates all synthesis functions and combines results
+ * T034-T035: Synthesize complete documentation for a domain
+ * Uses LLM analysis ONCE to get all documentation types
+ * Orchestrates code chunk gathering, CLAUDE.md context, and LLM analysis
  */
 export async function synthesizeDocumentation(
   domain: string,
   sourcesRequired: SourceType[],
   repositoryIdentifier: string
 ): Promise<SynthesizedDocumentation> {
-  logger.info('Starting documentation synthesis', { domain, repositoryIdentifier });
+  logger.info('Starting documentation synthesis with LLM', { domain, repositoryIdentifier });
 
   const startTime = Date.now();
+  const emptyCost = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUSD: 0 };
 
-  const [businessRules, programFlows, domainModels, contracts, userStories] = await Promise.all([
-    synthesizeBusinessRules(domain, sourcesRequired, repositoryIdentifier),
-    synthesizeProgramFlows(domain, sourcesRequired, repositoryIdentifier),
-    synthesizeDomainModels(domain, sourcesRequired, repositoryIdentifier),
-    synthesizeContracts(domain, sourcesRequired, repositoryIdentifier),
-    synthesizeUserStories(domain, sourcesRequired, repositoryIdentifier),
-  ]);
-
-  // Extract invariants from business rules
-  const invariants: string[] = businessRules.map((rule) => `${rule.name}: ${rule.description}`);
-
-  // Build citations
-  const citations: Citation[] = [];
-  const now = new Date();
-
+  // Get CLAUDE.md context if available
+  let claudeContext: string | undefined;
   if (sourcesRequired.includes('claude_md')) {
-    citations.push({
-      source: 'claude_md',
-      reference: 'CLAUDE.md (analyzed via code chunks)',
-      retrievedAt: now,
-    });
+    try {
+      const architectureContext = await analyzeCLAUDEmd(repositoryIdentifier);
+      if (architectureContext.hasClaudeFile) {
+        claudeContext = [
+          architectureContext.architecture,
+          architectureContext.systemIntent,
+          `Bounded Contexts: ${architectureContext.boundedContexts.join(', ')}`
+        ].filter(Boolean).join('\n\n');
+      }
+    } catch (error) {
+      logger.warn('Failed to load CLAUDE.md context', { error, domain });
+    }
   }
 
+  // Initialize empty results
+  let businessRules: BusinessRule[] = [];
+  let programFlows: ProgramFlow[] = [];
+  let domainModels: DomainModel[] = [];
+  let contracts: Contract[] = [];
+  const userStories: UserStory[] = []; // From external sources only
+  let invariants: string[] = []; // Business rules + architectural insights + design patterns
+  let citations: Citation[] = []; // File references from LLM analysis
+  let llmCost = emptyCost;
+
+  // Only run LLM analysis if code_chunks are required
   if (sourcesRequired.includes('code_chunks')) {
-    citations.push({
-      source: 'code_chunks',
-      reference: `Semantic search results for ${domain}`,
-      retrievedAt: now,
-    });
+    try {
+      const task = await taskService.getByIdentifier(repositoryIdentifier);
+
+      if (task) {
+        // Gather comprehensive code chunks for the domain using specialized queries
+        // Each query targets a specific documentation section for better coverage
+        const searchQueries = [
+          {
+            section: 'Business Rules',
+            query: `${domain} validation business rules constraints requirements enforce`,
+            limit: 16,
+          },
+          {
+            section: 'Program Flows',
+            query: `${domain} workflow process flow steps orchestration lifecycle`,
+            limit: 12,
+          },
+          {
+            section: 'Domain Models',
+            query: `${domain} model entity interface class type schema definition`,
+            limit: 12,
+          },
+          {
+            section: 'Contracts',
+            query: `${domain} API endpoint route handler contract interface service`,
+            limit: 10,
+          },
+          {
+            section: 'Invariants',
+            query: `${domain} architecture pattern design decision configuration deployment`,
+            limit: 20,
+          },
+        ];
+
+        // Execute all searches in parallel and combine results
+        const allSearchResults = await Promise.all(
+          searchQueries.map(async ({ section, query, limit }) => {
+            logger.info('Executing specialized search', { domain, section, query });
+            const results = await searchService.search({
+              query,
+              taskId: task.taskId,
+              limit,
+              minScore: 0.6,
+            });
+            return results;
+          })
+        );
+
+        // Flatten and deduplicate results by chunk ID
+        const searchResults = Array.from(
+          new Map(
+            allSearchResults.flat().map(result => [
+              `${result.filePath}:${result.startLine}:${result.endLine}`,
+              result
+            ])
+          ).values()
+        );
+
+        if (searchResults.length > 0) {
+          logger.info('Gathered code chunks for LLM analysis', {
+            domain,
+            chunkCount: searchResults.length,
+            queriesExecuted: searchQueries.length
+          });
+
+          // Format code chunks with file context
+          const codeChunks = searchResults.map((result) =>
+            `// File: ${result.filePath} (lines ${result.startLine}-${result.endLine})\n${result.content}`
+          );
+
+          // Call LLM ONCE to analyze and extract ALL documentation types
+          const llmResult = await analyzeWithLLM({
+            domain,
+            codeChunks,
+            claudeContext,
+            analysisType: 'domain',
+          });
+
+          // Extract business rules
+          businessRules = llmResult.documentation.businessRules.map(rule => ({
+            name: rule.name,
+            description: rule.description,
+            rationale: rule.rationale,
+            sources: ['code_chunks'] as SourceType[],
+          }));
+
+          // Extract program flows
+          programFlows = llmResult.documentation.programFlows.map(flow => ({
+            name: flow.name,
+            description: flow.description,
+            steps: flow.steps,
+            sources: ['code_chunks'] as SourceType[],
+          }));
+
+          // Extract domain models
+          domainModels = llmResult.documentation.domainModels.map(model => ({
+            name: model.name,
+            description: model.description,
+            attributes: model.attributes.map(attr => ({
+              name: attr.name,
+              type: attr.type,
+              description: attr.purpose
+            })),
+            sources: ['code_chunks'] as SourceType[],
+          }));
+
+          // Extract contracts
+          contracts = llmResult.documentation.contracts.map(contract => ({
+            name: contract.name,
+            purpose: contract.purpose,
+            inputs: contract.inputs.map(input => ({
+              name: typeof input === 'string' ? input : input,
+              type: 'object', // LLM provides business-level inputs
+              required: true
+            })),
+            outputs: contract.outputs.map(output => ({
+              name: typeof output === 'string' ? output : output,
+              type: 'object'
+            })),
+            sources: ['code_chunks'] as SourceType[],
+          }));
+
+          // Combine architectural insights and design patterns into invariants
+          // These represent system-level constraints and patterns
+          const architecturalInvariants = [
+            ...llmResult.documentation.architecturalInsights,
+            ...llmResult.documentation.designPatterns,
+          ];
+
+          // Merge with business rule invariants
+          invariants.push(...architecturalInvariants);
+
+          // Collect all file references from LLM analysis for citations
+          const allCodeReferences = new Set<string>();
+
+          llmResult.documentation.businessRules.forEach(rule =>
+            rule.codeReference.forEach(ref => allCodeReferences.add(ref))
+          );
+          llmResult.documentation.programFlows.forEach(flow =>
+            flow.codeReference.forEach(ref => allCodeReferences.add(ref))
+          );
+          llmResult.documentation.domainModels.forEach(model =>
+            model.codeReference.forEach(ref => allCodeReferences.add(ref))
+          );
+          llmResult.documentation.contracts.forEach(contract =>
+            contract.codeReference.forEach(ref => allCodeReferences.add(ref))
+          );
+
+          // Build detailed citations from code references
+          citations.length = 0; // Clear any existing citations
+          const now = new Date();
+
+          if (sourcesRequired.includes('claude_md')) {
+            citations.push({
+              source: 'claude_md',
+              reference: 'CLAUDE.md (analyzed via code chunks and LLM)',
+              retrievedAt: now,
+            });
+          }
+
+          // Add individual file citations from LLM analysis
+          Array.from(allCodeReferences).forEach(filePath => {
+            citations.push({
+              source: 'code_chunks',
+              reference: filePath,
+              retrievedAt: now,
+            });
+          });
+
+          // Capture LLM cost
+          llmCost = {
+            inputTokens: llmResult.actualCost.inputTokens,
+            outputTokens: llmResult.actualCost.outputTokens,
+            totalTokens: llmResult.actualCost.totalTokens,
+            costUSD: llmResult.actualCost.costUSD,
+          };
+
+          logger.info('LLM analysis complete for domain', {
+            domain,
+            businessRulesCount: businessRules.length,
+            flowsCount: programFlows.length,
+            modelsCount: domainModels.length,
+            contractsCount: contracts.length,
+            architecturalInsightsCount: llmResult.documentation.architecturalInsights.length,
+            designPatternsCount: llmResult.documentation.designPatterns.length,
+            cost: `$${llmCost.costUSD.toFixed(4)}`,
+            tokens: llmCost.totalTokens,
+          });
+        } else {
+          logger.warn('No code chunks found for domain', { domain });
+        }
+      } else {
+        logger.warn('Code extraction task not found', { repositoryIdentifier });
+      }
+    } catch (error) {
+      logger.error('Error during LLM synthesis', { error, domain });
+    }
+  }
+
+
+  // Build fallback citations if LLM analysis didn't run
+  if (citations.length === 0) {
+    const now = new Date();
+
+    if (sourcesRequired.includes('claude_md')) {
+      citations.push({
+        source: 'claude_md',
+        reference: 'CLAUDE.md (analyzed via code chunks)',
+        retrievedAt: now,
+      });
+    }
+
+    if (sourcesRequired.includes('code_chunks')) {
+      citations.push({
+        source: 'code_chunks',
+        reference: `Semantic search results for ${domain}`,
+        retrievedAt: now,
+      });
+    }
   }
 
   const synthesisTime = Date.now() - startTime;
@@ -372,6 +407,10 @@ export async function synthesizeDocumentation(
     businessRulesCount: businessRules.length,
     flowsCount: programFlows.length,
     modelsCount: domainModels.length,
+    contractsCount: contracts.length,
+    llmCalls: llmCost.costUSD > 0 ? 1 : 0,
+    totalLLMCost: `$${llmCost.costUSD.toFixed(4)}`,
+    totalTokens: llmCost.totalTokens,
   });
 
   return {
@@ -382,5 +421,6 @@ export async function synthesizeDocumentation(
     userStories,
     invariants,
     citations,
+    llmCost: llmCost.costUSD > 0 ? llmCost : undefined,
   };
 }

@@ -91,54 +91,67 @@ export async function executeNextTask(identifier: string): Promise<Documentation
   );
 
   try {
-    // T034-T035: Synthesize documentation from sources
-    const synthesized = await synthesizeDocumentation(nextTask.domain, nextTask.sourcesRequired, plan.repositoryIdentifier);
+   // T034-T035: Synthesize documentation from sources using LLM-powered analysis
+   const synthesized = await synthesizeDocumentation(
+    nextTask.domain,
+    nextTask.sourcesRequired,
+    plan.repositoryIdentifier
+   );
 
-    // T036: Generate and validate artifact
-    const artifact = await generateArtifact(nextTask.taskId, plan.planId, nextTask.domain, synthesized);
+   // T036: Generate and validate artifact
+   const artifact = await generateArtifact(
+    nextTask.taskId,
+    plan.planId,
+    nextTask.domain,
+    synthesized,
+   );
 
-    // T037: Persist artifact and update task atomically
-    await getDocumentationArtifactsCollection().insertOne(artifact);
+   // T037: Persist artifact and update task atomically
+   await getDocumentationArtifactsCollection().insertOne(artifact);
 
-    await getDocumentationTasksCollection().updateOne(
-      { taskId: nextTask.taskId },
-      {
-        $set: {
-          status: 'completed',
-          artifactRef: artifact.artifactId,
-          completedAt: new Date(),
-        },
-      }
-    );
+   await getDocumentationTasksCollection().updateOne(
+    { taskId: nextTask.taskId },
+    {
+     $set: {
+      status: "completed",
+      artifactRef: artifact.artifactId,
+      completedAt: new Date(),
+     },
+    },
+   );
 
-    // Update plan progress
-    const executionTime = Date.now() - startTime;
-    await getDocumentationPlansCollection().updateOne(
-      { planId: plan.planId },
-      {
-        $set: {
-          'progress.completedTasks': plan.progress.completedTasks + 1,
-          'progress.currentTask': null,
-          updatedAt: new Date(),
-        },
-      }
-    );
+   // Update plan progress
+   const executionTime = Date.now() - startTime;
+   await getDocumentationPlansCollection().updateOne(
+    { planId: plan.planId },
+    {
+     $set: {
+      "progress.completedTasks": plan.progress.completedTasks + 1,
+      "progress.currentTask": null,
+      updatedAt: new Date(),
+     },
+    },
+   );
 
-    // T042: Log lifecycle event with metrics
-    logger.info('Task completed successfully', {
-      taskId: nextTask.taskId,
-      domain: nextTask.domain,
-      executionTime: `${executionTime}ms`,
-      qualityScore: artifact.qualityScore,
-      artifactId: artifact.artifactId,
-    });
+   // T042: Log lifecycle event with metrics (including LLM cost)
+   logger.info("Task completed successfully", {
+    taskId: nextTask.taskId,
+    domain: nextTask.domain,
+    executionTime: `${executionTime}ms`,
+    qualityScore: artifact.qualityScore,
+    artifactId: artifact.artifactId,
+    llmCost: synthesized.llmCost
+     ? `$${synthesized.llmCost.costUSD.toFixed(4)}`
+     : "N/A",
+    llmTokens: synthesized.llmCost?.totalTokens || 0,
+   });
 
-    // Update nextTask object to reflect changes
-    nextTask.status = 'completed';
-    nextTask.artifactRef = artifact.artifactId;
-    nextTask.completedAt = new Date();
+   // Update nextTask object to reflect changes
+   nextTask.status = "completed";
+   nextTask.artifactRef = artifact.artifactId;
+   nextTask.completedAt = new Date();
 
-    return nextTask;
+   return nextTask;
   } catch (error: any) {
     // Task failed - mark as failed and log error
     const executionTime = Date.now() - startTime;

@@ -11,6 +11,7 @@ import { executeNextTask, getArtifactById } from '../../services/documentation-e
 import { createPlanResponse } from '../../models/documentation-plan.js';
 import { createTaskResponse } from '../../models/documentation-task.js';
 import { createArtifactResponse } from '../../models/documentation-artifact.js';
+import { getDocumentationPlansCollection } from '../../db/documentation-collections.js';
 import { logger } from '../../utils/logger.js';
 
 const router = express.Router();
@@ -38,10 +39,25 @@ router.post('/plan', validate({ body: CreateDocumentationPlanSchema }), async (r
       version: plan.version,
     });
 
-    // Add estimated duration to meta
+    // Add estimated duration and cost to meta
     const estimatedMinutes = Math.ceil((plan.progress.totalTasks * 2) / 60); // 2 min per task
-    response.meta = {
+    const estimatedCostPerTask = 0.25; // ~$0.25 per task average
+    const estimatedTotalCost = plan.progress.totalTasks * estimatedCostPerTask;
+
+    (response as any).meta = {
       estimatedDuration: `${estimatedMinutes * 60} minutes (${plan.progress.totalTasks} tasks × 2 min avg)`,
+      planningCost: plan.planningCost
+        ? {
+            inputTokens: plan.planningCost.inputTokens,
+            outputTokens: plan.planningCost.outputTokens,
+            totalTokens: plan.planningCost.totalTokens,
+            costUSD: `$${plan.planningCost.costUSD.toFixed(4)}`,
+          }
+        : null,
+      estimatedExecutionCost: `$${estimatedTotalCost.toFixed(2)} (${plan.progress.totalTasks} tasks × $${estimatedCostPerTask} avg)`,
+      totalEstimatedCost: plan.planningCost
+        ? `$${(plan.planningCost.costUSD + estimatedTotalCost).toFixed(2)}`
+        : `$${estimatedTotalCost.toFixed(2)}`,
     };
 
     res.status(201).json(response);
@@ -85,9 +101,23 @@ router.post('/execute', validate({ body: ExecuteDocumentationTaskSchema }), asyn
 
     const response = createTaskResponse(task);
 
-    // T042: Add plan progress to meta
+    // T042: Add plan progress and cost info to meta
     const plan = await getPlanByIdentifier(req.body.identifier);
     if (plan) {
+      // Get artifact to access cost info
+      let costInfo = null;
+      if (task.artifactRef) {
+        const artifact = await getArtifactById(task.artifactRef);
+        if (artifact?.llmCost) {
+          costInfo = {
+            inputTokens: artifact.llmCost.inputTokens,
+            outputTokens: artifact.llmCost.outputTokens,
+            totalTokens: artifact.llmCost.totalTokens,
+            costUSD: `$${artifact.llmCost.costUSD.toFixed(4)}`,
+          };
+        }
+      }
+
       (response as any).meta = {
         planProgress: {
           completed: plan.progress.completedTasks,
@@ -95,6 +125,7 @@ router.post('/execute', validate({ body: ExecuteDocumentationTaskSchema }), asyn
           percentComplete: Math.round((plan.progress.completedTasks / plan.progress.totalTasks) * 100),
         },
         message: `Task execution ${task.status === 'completed' ? 'completed' : 'failed'} for domain: ${task.domain}`,
+        ...(costInfo && { llmCost: costInfo }),
       };
     }
 
@@ -211,5 +242,263 @@ router.get('/artifact/:artifactId', validate({ params: ArtifactIdParamSchema }),
     next(error);
   }
 });
+
+/**
+ * POST /documentation/export
+ * Export all documentation artifacts as markdown files to repository's /docs folder
+ */
+router.post('/export', validate({ body: ExecuteDocumentationTaskSchema }), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    logger.info('[EXPORT] Exporting documentation artifacts to /docs folder', { identifier: req.body.identifier });
+
+    // Get plan
+    const identifier = req.body.identifier;
+    const plan = await getPlanByIdentifier(identifier);
+
+    if (!plan) {
+      return res.status(404).json({
+        errors: [
+          {
+            status: '404',
+            code: 'PLAN_NOT_FOUND',
+            title: 'Plan Not Found',
+            detail: `No documentation plan found with identifier: ${identifier}`,
+          },
+        ],
+      });
+    }
+
+    // Get all completed tasks with artifacts
+    const tasks = await getTasksForPlan(plan.planId, ['completed']);
+    const artifactIds = tasks.map((t) => t.artifactRef).filter((id): id is string => id !== null);
+
+    if (artifactIds.length === 0) {
+      return res.status(400).json({
+        errors: [
+          {
+            status: '400',
+            code: 'NO_ARTIFACTS',
+            title: 'No Artifacts to Export',
+            detail: 'No completed documentation tasks found. Execute tasks before exporting.',
+          },
+        ],
+      });
+    }
+
+    // Get repository path from extraction task
+    const extractionTask = await (await import('../../services/task.js')).taskService.getByIdentifier(
+      plan.repositoryIdentifier
+    );
+
+    if (!extractionTask) {
+      return res.status(400).json({
+        errors: [
+          {
+            status: '400',
+            code: 'REPOSITORY_NOT_FOUND',
+            title: 'Repository Not Found',
+            detail: `Extraction task for repository ${plan.repositoryIdentifier} not found`,
+          },
+        ],
+      });
+    }
+
+    const repositoryPath = extractionTask.repositoryPath;
+
+    // Export all artifacts
+    const { writeFileSync, mkdirSync, existsSync } = await import('fs');
+    const { join } = await import('path');
+
+    const docsDir = join(repositoryPath, 'docs');
+
+    // Create /docs directory if it doesn't exist
+    if (!existsSync(docsDir)) {
+      mkdirSync(docsDir, { recursive: true });
+      logger.info('Created /docs directory', { path: docsDir });
+    }
+
+    const exportedFiles: string[] = [];
+
+    // Write each artifact as markdown file
+    for (const artifactId of artifactIds) {
+      const artifact = await getArtifactById(artifactId);
+
+      if (!artifact) {
+        logger.warn('Artifact not found', { artifactId });
+        continue;
+      }
+
+      // Create filename from domain name (replace spaces with hyphens, lowercase)
+      const filename = `${artifact.domainName.replace(/\s+/g, '-').toLowerCase()}.md`;
+      const filePath = join(docsDir, filename);
+
+      // Write markdown content to file
+      writeFileSync(filePath, artifact.markdownContent, 'utf-8');
+
+      exportedFiles.push(filename);
+
+      logger.info('Exported artifact', {
+        domain: artifact.domainName,
+        filename,
+        qualityScore: artifact.qualityScore,
+      });
+    }
+
+    logger.info('[EXPORT] Documentation export complete', {
+      identifier,
+      exportedCount: exportedFiles.length,
+      docsDir,
+    });
+
+    res.status(200).json({
+      data: {
+        type: 'export_result',
+        attributes: {
+          planId: plan.planId,
+          identifier: plan.identifier,
+          exportedCount: exportedFiles.length,
+          docsDirectory: docsDir,
+          files: exportedFiles,
+        },
+      },
+      meta: {
+        message: `Exported ${exportedFiles.length} documentation artifacts to ${docsDir}`,
+      },
+    });
+  } catch (error: any) {
+    logger.error('[EXPORT] Export failed', {
+      error: error.message,
+      identifier: req.body?.identifier,
+    });
+    next(error);
+  }
+});
+
+/**
+ * POST /documentation/source/configure
+ * Configure external documentation sources (Confluence) for a plan
+ * User Story 4 - T056
+ *
+ * CONFLUENCE FEATURE COMMENTED OUT - Not production ready
+ */
+/*
+router.post('/source/configure', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    logger.info('[US4] Configuring external source', { body: req.body });
+
+    // T057: Validation for external source configuration
+    const { planId, sourceType, configuration } = req.body;
+
+    if (!planId || !sourceType || !configuration) {
+      return res.status(400).json({
+        errors: [
+          {
+            status: '400',
+            code: 'INVALID_CONFIG',
+            title: 'Invalid Configuration',
+            detail: 'planId, sourceType, and configuration are required',
+          },
+        ],
+      });
+    }
+
+    if (sourceType !== 'confluence') {
+      return res.status(400).json({
+        errors: [
+          {
+            status: '400',
+            code: 'UNSUPPORTED_SOURCE_TYPE',
+            title: 'Unsupported Source Type',
+            detail: `Source type '${sourceType}' is not supported. Supported types: confluence`,
+          },
+        ],
+      });
+    }
+
+    // Validate Confluence configuration
+    if (!configuration.cloudId) {
+      return res.status(400).json({
+        errors: [
+          {
+            status: '400',
+            code: 'MISSING_CLOUD_ID',
+            title: 'Missing Cloud ID',
+            detail: 'Confluence cloudId is required in configuration',
+          },
+        ],
+      });
+    }
+
+    // Get plan by planId (UUID)
+    const plansCollection = getDocumentationPlansCollection();
+    const plan = await plansCollection.findOne({ planId });
+
+    if (!plan) {
+      return res.status(404).json({
+        errors: [
+          {
+            status: '404',
+            code: 'PLAN_NOT_FOUND',
+            title: 'Plan Not Found',
+            detail: `No documentation plan found with planId: ${planId}`,
+          },
+        ],
+      });
+    }
+
+    // T058: Error handling for authentication expiry (delegated to MCP client)
+    // Authentication is handled by MCP client - we only store cloudId (not credentials)
+    const { v4: uuidv4 } = await import('uuid');
+    const { createExternalSourceConfigResponse } = await import('../../models/external-source-config.js');
+
+    const externalSourceConfig = {
+      configId: uuidv4(),
+      planId: plan.planId,
+      sourceType: sourceType as 'confluence',
+      enabled: true,
+      connectionParams: {
+        cloudId: configuration.cloudId,
+      },
+      authDelegation: {
+        protocol: 'mcp' as const,
+        upstreamServer: 'atlassian', // Confluence MCP server
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Update plan with external source configuration
+    const plansCollectionForUpdate = getDocumentationPlansCollection();
+
+    await plansCollectionForUpdate.updateOne(
+      { planId: plan.planId },
+      {
+        $set: {
+          externalSources: [externalSourceConfig],
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    // T059: Add logging for external source integration
+    logger.info('[US4] External source configured', {
+      planId: plan.planId,
+      sourceType,
+      cloudId: configuration.cloudId,
+      configId: externalSourceConfig.configId,
+      configuredAt: externalSourceConfig.createdAt,
+    });
+
+    const response = createExternalSourceConfigResponse(externalSourceConfig);
+    res.status(200).json(response);
+  } catch (error: any) {
+    logger.error('[US4] External source configuration failed', {
+      error: error.message,
+      planId: req.body?.planId,
+    });
+    next(error);
+  }
+});
+*/
 
 export default router;
