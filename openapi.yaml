@@ -10,6 +10,13 @@ info:
     - Graceful stop processing endpoint
     - Smart file recommendations (~200k tokens per session)
     - Search result filtering with minScore threshold (default 0.7)
+    - **GPT-4 powered documentation generation** (reconstruction-grade system documentation)
+
+    **Documentation Generation:**
+    - Uses GPT-4 to analyze code and generate detailed, insightful documentation
+    - Explains business rules, program flows, domain models with rationale (WHY, not just WHAT)
+    - Produces reconstruction-grade artifacts suitable for V2 system rebuilds
+    - Cost: ~$0.15-0.30 per domain analyzed
 
     All endpoints are bound to localhost only. The API follows JSON:API format for responses.
   version: 2.0.0
@@ -27,6 +34,8 @@ tags:
     description: Background processing operations
   - name: Search
     description: Semantic code search
+  - name: Documentation
+    description: Reconstruction-grade documentation generation
 
 paths:
   /health:
@@ -310,6 +319,230 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /documentation/plan:
+    post:
+      summary: Create documentation plan (GPT-4 powered)
+      description: |
+        Creates a documentation plan for generating reconstruction-grade system documentation
+        using GPT-4 AI analysis.
+
+        **How it works:**
+        1. Analyzes CLAUDE.md to understand system architecture
+        2. Searches code to identify domains and bounded contexts
+        3. Creates prioritized documentation tasks (FoundationalFirst heuristic)
+        4. Each task will use GPT-4 for intelligent code analysis (not keyword matching)
+
+        **Prerequisites:**
+        - Repository must be extracted first (code chunks and embeddings must exist)
+        - OPENAI_API_KEY environment variable must be set
+        - GPT-4 API access required
+
+        **Performance:** Plan creation ~5-10 seconds (GPT-4 not called during planning)
+      operationId: createDocumentationPlan
+      tags:
+        - Documentation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDocumentationPlanRequest'
+      responses:
+        '201':
+          description: Plan created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentationPlanResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documentation/execute:
+    post:
+      summary: Execute documentation task (GPT-4 analysis - 30-60s)
+      description: |
+        Executes the next ready documentation task for a plan using GPT-4 for intelligent
+        code analysis.
+
+        **⚠️ Important:** This endpoint takes 30-60 seconds per task because it uses GPT-4
+        to analyze code and generate detailed documentation. The endpoint waits for analysis
+        to complete before responding.
+
+        **What happens:**
+        1. Selects highest-priority ready task
+        2. Gathers 20-50 relevant code chunks via semantic search
+        3. Retrieves CLAUDE.md context
+        4. **Sends to GPT-4 for analysis** (30-60 seconds - AI reads, understands, explains)
+        5. Validates quality (section completeness, no implementation details)
+        6. Persists artifact atomically
+        7. Returns task status with quality score
+
+        **Cost:** ~$0.15-0.30 per task (GPT-4 tokens: ~10k input + ~2k output)
+
+        **Output Quality:** GPT-4 generates detailed explanations with business rationale,
+        not just file paths. Documentation explains WHAT, WHY, WHERE, and CONSEQUENCES.
+      operationId: executeDocumentationTask
+      tags:
+        - Documentation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - identifier
+              properties:
+                identifier:
+                  type: string
+                  description: Plan identifier
+                  example: my-app-docs
+      responses:
+        '200':
+          description: Task executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentationTaskResponse'
+        '400':
+          description: No ready tasks or invalid plan status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documentation/plan/{identifier}:
+    get:
+      summary: Get plan status
+      description: Retrieve documentation plan status with complete task list
+      operationId: getPlanStatus
+      tags:
+        - Documentation
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plan identifier
+      responses:
+        '200':
+          description: Plan status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentationPlanResponse'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documentation/artifact/{artifactId}:
+    get:
+      summary: Get documentation artifact
+      description: Retrieve generated documentation artifact with content negotiation support
+      operationId: getArtifact
+      tags:
+        - Documentation
+      parameters:
+        - name: artifactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Artifact ID
+        - name: Accept
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [application/json, text/markdown]
+            default: application/json
+          description: Content type preference
+      responses:
+        '200':
+          description: Artifact retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentationArtifactResponse'
+            text/markdown:
+              schema:
+                type: string
+                description: Markdown-formatted documentation
+        '404':
+          description: Artifact not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documentation/export:
+    post:
+      summary: Export documentation to repository /docs folder
+      description: |
+        Exports all completed documentation artifacts as markdown files to the repository's
+        /docs folder. Creates the directory if it doesn't exist.
+
+        **File naming:** Domain names are converted to lowercase with spaces replaced by hyphens
+        (e.g., "User Authentication" → "user-authentication.md")
+
+        **Behavior:**
+        - Creates /docs directory if missing
+        - Overwrites existing .md files with same name
+        - Only exports completed tasks (skips pending/failed tasks)
+        - Returns list of all exported files
+
+        **Use case:** Integrate generated documentation directly into the repository for
+        version control and team collaboration.
+      operationId: exportDocumentation
+      tags:
+        - Documentation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - identifier
+              properties:
+                identifier:
+                  type: string
+                  description: Plan identifier
+                  example: my-app-docs
+      responses:
+        '200':
+          description: Documentation exported successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportResultResponse'
+        '400':
+          description: No artifacts to export or invalid plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Plan or repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # CONFLUENCE INTEGRATION ENDPOINT - DEFERRED (Not production ready)
+  # /documentation/source/configure endpoint has been commented out
+  # Feature exists in POC but is not accessible via API
+  # See docs/confluence-setup-guide.md for implementation details
 
 components:
   schemas:
@@ -688,3 +921,293 @@ components:
               meta:
                 type: object
                 additionalProperties: true
+
+    CreateDocumentationPlanRequest:
+      type: object
+      required:
+        - repositoryIdentifier
+        - identifier
+      properties:
+        repositoryIdentifier:
+          type: string
+          description: Identifier of the extracted code repository
+          example: my-app
+        identifier:
+          type: string
+          minLength: 2
+          maxLength: 100
+          pattern: ^[a-zA-Z0-9_-]+$
+          description: User-friendly name for this documentation plan
+          example: my-app-docs
+        heuristicVersion:
+          type: string
+          description: Prioritization heuristic version
+          example: FoundationalFirst-v1
+          default: FoundationalFirst-v1
+        externalSources:
+          type: object
+          properties:
+            confluence:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                cloudId:
+                  type: string
+
+    DocumentationPlanResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: documentation_plan
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+                identifier:
+                  type: string
+                  example: my-app-docs
+                version:
+                  type: integer
+                  example: 1
+                repositoryIdentifier:
+                  type: string
+                  example: my-app
+                status:
+                  type: string
+                  enum: [planning, executing, completed, failed]
+                progress:
+                  type: object
+                  properties:
+                    totalTasks:
+                      type: integer
+                    completedTasks:
+                      type: integer
+                    failedTasks:
+                      type: integer
+                    currentTask:
+                      type: string
+                      format: uuid
+                      nullable: true
+                heuristic:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    version:
+                      type: string
+                createdAt:
+                  type: string
+                  format: date-time
+                updatedAt:
+                  type: string
+                  format: date-time
+            relationships:
+              type: object
+              properties:
+                tasks:
+                  type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            example: documentation_task
+                          id:
+                            type: string
+                            format: uuid
+                          attributes:
+                            type: object
+        meta:
+          type: object
+          properties:
+            estimatedDuration:
+              type: string
+
+    DocumentationTaskResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: documentation_task
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                domain:
+                  type: string
+                  example: User Authentication
+                status:
+                  type: string
+                  enum: [pending, in_progress, completed, failed, blocked]
+                priorityScore:
+                  type: number
+                sourcesRequired:
+                  type: array
+                  items:
+                    type: string
+                    enum: [claude_md, code_chunks, confluence]
+                artifactRef:
+                  type: string
+                  format: uuid
+                  nullable: true
+                startedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                completedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+        meta:
+          type: object
+          properties:
+            planProgress:
+              type: object
+              properties:
+                completed:
+                  type: integer
+                remaining:
+                  type: integer
+                percentComplete:
+                  type: integer
+            message:
+              type: string
+
+    DocumentationArtifactResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: documentation_artifact
+            id:
+              type: string
+              format: uuid
+            attributes:
+              type: object
+              properties:
+                artifactId:
+                  type: string
+                  format: uuid
+                domainName:
+                  type: string
+                  example: User Authentication
+                markdownContent:
+                  type: string
+                  description: Generated markdown documentation
+                sections:
+                  type: object
+                  properties:
+                    businessRules:
+                      type: array
+                      items:
+                        type: object
+                    programFlows:
+                      type: array
+                      items:
+                        type: object
+                    domainModels:
+                      type: array
+                      items:
+                        type: object
+                    contracts:
+                      type: array
+                      items:
+                        type: object
+                    userStories:
+                      type: array
+                      items:
+                        type: object
+                    invariants:
+                      type: array
+                      items:
+                        type: string
+                citations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      source:
+                        type: string
+                        enum: [claude_md, code_chunks, confluence]
+                      reference:
+                        type: string
+                      retrievedAt:
+                        type: string
+                        format: date-time
+                qualityScore:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+                  description: Automated quality score (0-100)
+                generatedAt:
+                  type: string
+                  format: date-time
+
+    ExportResultResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              example: export_result
+            attributes:
+              type: object
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+                  description: Documentation plan ID
+                identifier:
+                  type: string
+                  description: Plan identifier
+                  example: my-app-docs
+                exportedCount:
+                  type: integer
+                  description: Number of files exported
+                  example: 8
+                docsDirectory:
+                  type: string
+                  description: Absolute path to /docs directory
+                  example: C:\Users\admin\Repositories\my-app\docs
+                files:
+                  type: array
+                  description: List of exported markdown filenames
+                  items:
+                    type: string
+                    example: user-authentication.md
+        meta:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Exported 8 documentation artifacts to C:\Users\admin\Repositories\my-app\docs
+
+    # CONFLUENCE SCHEMA - DEFERRED (Feature not production ready)
+    # ExternalSourceConfigResponse schema has been removed
+    # Feature exists in POC implementation but is not accessible via API

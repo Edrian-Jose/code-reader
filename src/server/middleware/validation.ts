@@ -45,3 +45,37 @@ export const UUIDParamSchema = z.object({
 export const TaskIdParamSchema = z.object({
   taskId: z.string().uuid('Invalid task ID format'),
 });
+
+// Documentation generation validation schemas
+export const CreateDocumentationPlanSchema = z.object({
+  repositoryIdentifier: z.string().min(2).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Identifier must contain only alphanumeric characters, hyphens, and underscores'),
+  identifier: z.string().min(2).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Identifier must contain only alphanumeric characters, hyphens, and underscores'),
+  heuristicVersion: z.string().optional(),
+  externalSources: z.object({
+    confluence: z.object({
+      enabled: z.boolean(),
+      cloudId: z.string(),
+    }).optional(),
+  }).optional(),
+});
+
+export const ExecuteDocumentationTaskSchema = z.object({
+  identifier: z.string().min(2).max(100),
+});
+
+export const PlanIdentifierParamSchema = z.object({
+  identifier: z.string().min(2).max(100),
+});
+
+export const ArtifactIdParamSchema = z.object({
+  artifactId: z.string().uuid('Invalid artifact ID format'),
+});
+
+export const ConfigureExternalSourceSchema = z.object({
+  planIdentifier: z.string().min(2).max(100),
+  sourceType: z.enum(['confluence']),
+  enabled: z.boolean(),
+  connectionParams: z.object({
+    cloudId: z.string().min(1),
+  }),
+});

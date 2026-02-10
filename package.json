@@ -13,7 +13,11 @@
     "test:integration": "jest tests/integration",
     "test:e2e": "jest tests/e2e",
     "db:init": "tsx scripts/db-init.ts",
+    "db:init:docs": "tsx scripts/db-init-docs.ts",
     "prereqs": "tsx scripts/check-prereqs.ts",
+    "poc:docs": "tsx scripts/poc-llm-docs.ts",
+    "poc:confluence": "tsx scripts/poc-confluence-enrichment.ts",
+    "debug:confluence": "tsx scripts/debug-confluence-query.ts",
     "lint": "eslint src/**/*.ts"
   },
   "keywords": [
@@ -28,12 +32,19 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@types/handlebars": "^4.0.40",
+    "@types/mdast": "^4.0.4",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "glob": "^13.0.1",
+    "handlebars": "^4.7.8",
     "mongodb": "^7.1.0",
     "openai": "^6.18.0",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
     "tiktoken": "^1.0.22",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0",
     "uuid": "^13.0.0",
     "winston": "^3.19.0",
     "zod": "^4.3.6"

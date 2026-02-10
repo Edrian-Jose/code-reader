@@ -1,0 +1,112 @@
+# Domain: {{domainName}}
+
+**Sources**: {{sources}}
+**Generated**: {{timestamp}}
+
+---
+
+## Business Rules
+
+{{#each businessRules}}
+### {{this.name}}
+
+{{this.description}}
+
+**Rationale**: {{this.rationale}}
+
+**Sources**: {{#each this.sources}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+
+---
+
+{{/each}}
+
+## Program Flows
+
+{{#each programFlows}}
+### {{this.name}}
+
+{{this.description}}
+
+**Steps**:
+{{#each this.steps}}
+{{add @index 1}}. {{this}}
+{{/each}}
+
+**Sources**: {{#each this.sources}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+
+---
+
+{{/each}}
+
+## Domain Models
+
+{{#each domainModels}}
+### {{this.name}}
+
+{{this.description}}
+
+**Attributes**:
+{{#each this.attributes}}
+- `{{this.name}}`: {{this.type}} - {{this.description}}
+{{/each}}
+
+**Sources**: {{#each this.sources}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+
+---
+
+{{/each}}
+
+## Contracts & Interfaces
+
+{{#each contracts}}
+### {{this.name}}
+
+**Purpose**: {{this.purpose}}
+
+**Inputs**:
+{{#each this.inputs}}
+- `{{this.name}}` ({{this.type}}){{#if this.required}} - **required**{{else}} - optional{{/if}}
+{{/each}}
+
+**Outputs**:
+{{#each this.outputs}}
+- `{{this.name}}` ({{this.type}})
+{{/each}}
+
+**Sources**: {{#each this.sources}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+
+---
+
+{{/each}}
+
+## User Stories
+
+{{#each userStories}}
+### {{this.title}}
+
+{{this.description}}
+
+**Acceptance Criteria**:
+{{#each this.acceptanceCriteria}}
+- {{this}}
+{{/each}}
+
+**Sources**: {{#each this.sources}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+
+---
+
+{{/each}}
+
+## System Invariants
+
+{{#each invariants}}
+- {{this}}
+{{/each}}
+
+---
+
+## Source Citations
+
+{{#each citations}}
+- **{{this.source}}**: {{this.reference}} (retrieved {{this.retrievedAt}})
+{{/each}}

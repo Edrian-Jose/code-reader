@@ -3,6 +3,8 @@ import { connectToDatabase, disconnectFromDatabase } from './db/client.js';
 import { createIndexes } from './db/indexes.js';
 import { getConfig } from './config/index.js';
 import { logger } from './utils/logger.js';
+// CONFLUENCE FEATURE COMMENTED OUT - Not production ready
+// import { initializeConfluenceMCP, shutdownConfluenceMCP } from './mcp/confluence-client.js';
 
 async function main(): Promise<void> {
   logger.info('Code Reader MCP Server starting...');
@@ -15,6 +17,10 @@ async function main(): Promise<void> {
 
   // Ensure indexes exist
   await createIndexes();
+
+  // CONFLUENCE FEATURE COMMENTED OUT - Not production ready
+  // Initialize Confluence MCP client (optional - gracefully skips if not configured)
+  // await initializeConfluenceMCP();
 
   // Create and start server
   const app = createApp();
@@ -31,7 +37,13 @@ async function main(): Promise<void> {
       logger.info('HTTP server closed');
 
       try {
+        // CONFLUENCE FEATURE COMMENTED OUT - Not production ready
+        // Shutdown Confluence MCP client
+        // await shutdownConfluenceMCP();
+
+        // Disconnect from database
         await disconnectFromDatabase();
+
         logger.info('Graceful shutdown complete');
         process.exit(0);
       } catch (error) {
