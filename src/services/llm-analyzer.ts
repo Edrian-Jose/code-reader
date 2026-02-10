@@ -89,13 +89,29 @@ function buildAnalysisPrompt(request: LLMAnalysisRequest): string {
   // Build domain context section
   let domainContextSection = `Your task: Analyze the "${domain}" domain in this codebase and produce detailed, insightful documentation suitable for system reconstruction (v2 rebuild).`;
 
+  if (domainDescription) {
+    domainContextSection += `\n\nDOMAIN DESCRIPTION: ${domainDescription}`;
+  }
+
+  if (isFoundational) {
+    domainContextSection += `\n\nNOTE: This is a FOUNDATIONAL domain - other domains depend on it.`;
+  }
+
+  if (dependencies && dependencies.length > 0) {
+    domainContextSection += `\n\nDEPENDENCIES: This domain depends on: ${dependencies.join(', ')}`;
+  }
+
   const systemArchitecturePrompt = `You are a technical documentation expert specializing in reconstruction-grade documentation.
 
 ${domainContextSection}
 
-${claudeContext ? `\nCONTEXT FROM CLAUDE.MD:\n${claudeContext}\n\n` : ""}
+${claudeContext ? `CONTEXT FROM CLAUDE.MD:\n${claudeContext.slice(0, 4000)}\n\n` : ""}
 
-CODE TO ANALYZE (${codeChunks.length} relevant code chunks):
+CODE TO ANALYZE FOR "${domain}" DOMAIN (${codeChunks.length} relevant code chunks):
+
+${codeChunks.slice(0, 40).join('\n\n---NEXT CHUNK---\n\n')}
+
+---
 
 INSTRUCTIONS:
 
@@ -127,12 +143,20 @@ INSTRUCTIONS:
    - Note constraints and rationale
 
 CRITICAL REQUIREMENTS:
-- Be DETAILED and INSIGHTFUL, not generic
-- Focus on WHY, not just WHAT
+
+⚠️ DOMAIN SPECIFICITY - MOST IMPORTANT:
+- Extract information SPECIFIC to "${domain}" ONLY - not general patterns
+- AVOID generic statements like "validates input", "handles errors", "stores data"
+- DO include specific details: exact validation rules, specific error codes, concrete data constraints
+- Each domain doc should be UNIQUE - if you removed the domain name, it should still be obvious which domain this is
+- Ask yourself: "Could this apply to ANY domain?" → If yes, DON'T include it or make it more specific
+
+QUALITY REQUIREMENTS:
+- Be DETAILED and INSIGHTFUL with domain-specific details (numbers, names, exact constraints)
+- Focus on WHY things exist in THIS domain specifically, not just WHAT
 - Use technology-agnostic language (explain patterns, not frameworks)
-- Make it useful for someone rebuilding the system from scratch
-- Include enough detail that a new engineer can understand the domain without seeing code
-- For each item, include codeReference as an ARRAY of file paths from the code chunks where you found evidence for this item
+- Include enough detail that a new engineer can understand THIS SPECIFIC domain without seeing code
+- For each item, include codeReference as an ARRAY of file paths from the code chunks where you found evidence
 
 Return ONLY a valid JSON object (no markdown code fences) matching this structure:
 {
@@ -365,72 +389,62 @@ export interface DomainIdentificationResult {
 }
 
 /**
- * Use GPT-4 to identify ALL domains/bounded contexts in the repository
- * This ensures COMPLETE coverage, not just random files from search results
+ * Use GPT-4 to identify ALL domains/bounded contexts from CLAUDE.md
+ * SIMPLIFIED: Just pass CLAUDE.md to GPT-4, no code sampling needed
  */
 export async function identifyDomainsWithLLM(
-  claudeContent: string,
-  codeStructureSample: string[]
+  claudeContent: string
 ): Promise<DomainIdentificationResult> {
-  logger.info('Using GPT-4 to identify all system domains', {
+  logger.info('Using GPT-4 to identify all system domains from CLAUDE.md', {
     claudeContentLength: claudeContent.length,
-    codeSampleCount: codeStructureSample.length,
   });
 
-  const prompt = `You are analyzing a codebase to identify ALL major bounded contexts/domains for comprehensive system documentation.
+  const prompt = `You are analyzing a repository's CLAUDE.md file to identify ALL domains/bounded contexts that need documentation.
 
-Your goal: Identify EVERY significant subsystem that needs documentation. Missing domains means incomplete documentation and failed V2 reconstruction.
+CLAUDE.md completely describes what the repository is about. Your job is to extract the architecture and all domains/subsystems mentioned or implied.
 
-CLAUDE.MD CONTENT (system overview):
-${claudeContent || 'Not available - analyze code structure only'}
+CLAUDE.MD CONTENT:
+${claudeContent}
 
-CODE STRUCTURE SAMPLE (representative files):
-${codeStructureSample.join('\n\n---\n\n')}
+TASK:
+Extract a comprehensive list of domains/bounded contexts from CLAUDE.md. This must include:
 
-ANALYSIS REQUIREMENTS:
+1. **System Architecture** - Always include this as the first foundational domain
+2. **All business domains** mentioned (features, capabilities, use cases)
+3. **All technical layers** mentioned (API, database, services, models, flows, data pipelines, etc.)
+4. **All integrations** mentioned (external systems, APIs, third-party services)
+5. **All cross-cutting concerns** mentioned (auth, logging, error handling, etc.)
 
-1. Identify ALL major bounded contexts/domains including:
-   - Core business domains (e.g., User Management, Order Processing)
-   - Infrastructure layers (e.g., Database Layer, API Layer, Configuration)
-   - Cross-cutting concerns (e.g., Authentication, Logging, Error Handling)
-   - Data models and persistence
-   - External integrations
+For EACH domain provide:
+- **name**: Clear domain name (e.g., "Task Management", "API Layer")
+- **description**: What this domain/subsystem does (1-2 sentences from CLAUDE.md)
+- **isFoundational**: true if it's infrastructure/architecture that other domains depend on
+- **dependencies**: Names of other domains this depends on (infer from CLAUDE.md)
 
-2. For each domain:
-   - Name: Clear, descriptive name
-   - Description: What this domain/subsystem is responsible for
-   - isFoundational: true if other domains depend on it (architecture, core models, config)
-   - keyFiles: Representative file paths that belong to this domain
-   - dependencies: Names of other domains this depends on
-
-3. Think systematically:
-   - What layers exist? (API, Business Logic, Data, Infrastructure)
-   - What are the main features/capabilities?
-   - What shared infrastructure exists?
-   - Don't miss anything - comprehensive coverage is critical
-
-Return ONLY valid JSON (no markdown):
+Return ONLY valid JSON (no markdown formatting):
 {
   "domains": [
     {
       "name": "System Architecture",
-      "description": "Overall system design, architecture patterns, core principles",
+      "description": "Overall system design and architecture (from CLAUDE.md)",
       "isFoundational": true,
-      "keyFiles": ["src/index.ts", "src/config/", "CLAUDE.md"],
       "dependencies": []
     },
     {
-      "name": "Task Management",
-      "description": "Creation, versioning, and lifecycle management of extraction tasks",
-      "isFoundational": true,
-      "keyFiles": ["src/services/task.ts", "src/models/task.ts"],
+      "name": "Domain Name",
+      "description": "What it does (from CLAUDE.md)",
+      "isFoundational": false,
       "dependencies": ["System Architecture"]
-    },
-    ... // CONTINUE until ALL domains are identified
+    }
   ]
 }
 
-CRITICAL: Include ALL subsystems. Missing domains = incomplete documentation = failed V2 reconstruction.`;
+**IMPORTANT**:
+- System Architecture should ALWAYS be first and foundational
+- Include ALL domains mentioned or implied in CLAUDE.md
+- If CLAUDE.md mentions features, those are domains
+- If CLAUDE.md mentions layers (API, DB), those are domains
+- Be comprehensive - missing domains = incomplete documentation`;
 
   try {
     const startTime = Date.now();

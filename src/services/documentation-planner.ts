@@ -12,8 +12,6 @@ import { analyzeCLAUDEmd } from './source-synthesizer.js';
 import { assignPriorityScores } from './task-prioritizer.js';
 import { detectCycle, mergeCyclicNodes } from '../utils/dependency-graph.js';
 import { logger } from '../utils/logger.js';
-import { searchService } from './search.js';
-import { taskService } from './task.js';
 import { identifyDomainsWithLLM } from './llm-analyzer.js';
 
 /**
@@ -39,23 +37,24 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
   logger.info('Calculated plan version', { identifier: input.identifier, version });
 
   // T020: Implement task decomposition with LLM
-  // Step 1: Get CLAUDE.md content for system context
+  // SIMPLIFIED: Just pass CLAUDE.md to GPT-4, let it extract all domains
   const architectureContext = await analyzeCLAUDEmd(input.repositoryIdentifier);
-  const claudeContent = architectureContext.architecture || architectureContext.systemIntent || '';
+  const claudeContent = architectureContext.fullContent || '';
 
-  // Step 2: Sample code structure for GPT-4 analysis
-  const codeStructureSample = await sampleCodeStructure(input.repositoryIdentifier);
+  if (!claudeContent) {
+    throw new Error('CLAUDE.md not found or empty - cannot identify domains without it');
+  }
 
-  // Step 3: Use GPT-4 to identify ALL domains comprehensively
-  const domainAnalysis = await identifyDomainsWithLLM(claudeContent, codeStructureSample);
+  // Use GPT-4 to identify ALL domains from CLAUDE.md
+  const domainAnalysis = await identifyDomainsWithLLM(claudeContent);
 
-  logger.info('GPT-4 identified domains comprehensively', {
+  logger.info('GPT-4 identified domains from CLAUDE.md', {
     domainCount: domainAnalysis.domains.length,
     domains: domainAnalysis.domains.map((d) => d.name),
     llmCost: `$${domainAnalysis.cost.costUSD.toFixed(4)}`,
   });
 
-  // Step 4: Create tasks for each identified domain
+  // Create tasks for each identified domain
   const tasks = createTasksFromDomainAnalysis(domainAnalysis.domains, planId);
 
   // T021: Implement dependency detection
@@ -156,55 +155,8 @@ export async function createDocumentationPlan(input: CreatePlanInput): Promise<D
 }
 
 /**
- * Sample code structure for GPT-4 analysis
- * Gathers representative files from different parts of the codebase
- */
-async function sampleCodeStructure(repositoryIdentifier: string): Promise<string[]> {
-  logger.info('Sampling code structure for domain identification');
-
-  const task = await taskService.getByIdentifier(repositoryIdentifier);
-  if (!task) {
-    logger.warn('Repository not found for code sampling', { repositoryIdentifier });
-    return [];
-  }
-
-  const samples: string[] = [];
-
-  // Sample different types of files to understand structure
-  const sampleQueries = [
-    'main entry point index application',
-    'service business logic',
-    'model entity interface type definition',
-    'route endpoint API handler',
-    'database connection repository',
-    'configuration settings',
-  ];
-
-  for (const query of sampleQueries) {
-    try {
-      const results = await searchService.search({
-        query,
-        taskId: task.taskId,
-        limit: 3,
-        minScore: 0.5,
-      });
-
-      for (const result of results) {
-        samples.push(`FILE: ${result.filePath}\n${result.content.substring(0, 500)}...`);
-      }
-    } catch (error) {
-      logger.debug('Sample query failed', { query });
-    }
-  }
-
-  logger.info('Code structure sampled', { sampleCount: samples.length });
-
-  return samples;
-}
-
-/**
  * Create documentation tasks from LLM domain analysis
- * Uses GPT-4's comprehensive domain identification (includes ALL subsystems)
+ * Uses GPT-4's comprehensive domain identification from CLAUDE.md
  */
 function createTasksFromDomainAnalysis(
   domains: Array<{ name: string; description: string; isFoundational: boolean; dependencies: string[] }>,

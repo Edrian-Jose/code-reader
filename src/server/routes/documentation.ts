@@ -11,7 +11,8 @@ import { executeNextTask, getArtifactById } from '../../services/documentation-e
 import { createPlanResponse } from '../../models/documentation-plan.js';
 import { createTaskResponse } from '../../models/documentation-task.js';
 import { createArtifactResponse } from '../../models/documentation-artifact.js';
-import { getDocumentationPlansCollection } from '../../db/documentation-collections.js';
+// CONFLUENCE FEATURE COMMENTED OUT - getDocumentationPlansCollection no longer needed
+// import { getDocumentationPlansCollection } from '../../db/documentation-collections.js';
 import { logger } from '../../utils/logger.js';
 
 const router = express.Router();
@@ -328,8 +329,13 @@ router.post('/export', validate({ body: ExecuteDocumentationTaskSchema }), async
         continue;
       }
 
-      // Create filename from domain name (replace spaces with hyphens, lowercase)
-      const filename = `${artifact.domainName.replace(/\s+/g, '-').toLowerCase()}.md`;
+      // Create filename from domain name (sanitize for filesystem)
+      // Replace spaces, slashes, and special chars with hyphens
+      const filename = `${artifact.domainName
+        .replace(/[\s\/\\:*?"<>|]+/g, '-') // Replace invalid filename chars
+        .replace(/-+/g, '-') // Collapse multiple hyphens
+        .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+        .toLowerCase()}.md`;
       const filePath = join(docsDir, filename);
 
       // Write markdown content to file
